@@ -1,0 +1,29 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# VLearn data pack — hackathon-only, không được commit nguyên file
+# (bản gốc ở ../vlearn-pack/, xem README.md trong đó — rule ở đây chỉ cho bản copy phục vụ Next.js)
+/public/vlearn-pack/
