@@ -7,11 +7,13 @@ import os
 import re
 import select
 import sys
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from agent import Agent, AgentRun
+from classroom_logging import ClassroomLogger
 from env_loader import load_lab_env
 from ingest.slides import ensure_slide_markdown
 from providers import make_provider
@@ -92,6 +94,7 @@ class ClassroomSession:
     provider: Provider
     model: str | None = None
     chat_history: list[str] = field(default_factory=list)
+    logger: ClassroomLogger | None = None
 
     def __post_init__(self) -> None:
         self.current_slide = 1
@@ -115,9 +118,25 @@ class ClassroomSession:
             model=self.model,
         )
 
-    def set_current_slide(self, slide_number: int) -> SlideSection:
+    def set_current_slide(
+        self,
+        slide_number: int,
+        *,
+        reason: str = "navigation",
+        emit_log: bool = True,
+    ) -> SlideSection:
         slide = self.deck.get_slide(slide_number)
+        previous_slide = self.current_slide
         self.current_slide = slide.number
+        if emit_log and (previous_slide != slide.number or reason == "bootstrap"):
+            self._log_event(
+                "slide_changed",
+                actor="system",
+                reason=reason,
+                previous_slide=previous_slide,
+                current_slide=slide.number,
+                current_slide_title=slide.title,
+            )
         return slide
 
     def get_current_slide(self) -> SlideSection:
@@ -133,10 +152,18 @@ class ClassroomSession:
             f"{excerpt_text}"
         )
 
-    def ask_ta(self, question: str) -> dict[str, Any]:
+    def ask_ta(self, question: str, *, channel: str = "private_ta") -> dict[str, Any]:
         question = question.strip()
         if not question:
             raise ValueError("Question must not be empty")
+        self._log_event(
+            "learner_message",
+            actor="learner",
+            target="teacher",
+            channel=channel,
+            message_kind="question",
+            message=question,
+        )
         self._record_history("Learner", question)
         prompt = self._build_prompt(
             mode="private_ta_chat",
@@ -148,6 +175,7 @@ class ClassroomSession:
         )
         response = self._run_json_agent(self.ta_agent, prompt)
         self._record_history("TA", response.get("reply", ""))
+        self._log_agent_message("teacher", response, channel=channel, target="learner")
         return response
 
     def start_shared_round(self) -> dict[str, Any]:
@@ -161,10 +189,20 @@ class ClassroomSession:
         response = self._run_json_agent(self.student_agent, prompt)
         if response.get("reply"):
             self._record_history("Student Agent", response["reply"])
+        self._log_agent_message("student", response, channel="shared", target="learner")
         return response
 
     def finish_shared_round(self, student_question: str, learner_answer: str | None) -> dict[str, Any]:
         if learner_answer:
+            self._log_event(
+                "learner_message",
+                actor="learner",
+                target="student",
+                channel="shared",
+                message_kind="answer",
+                related_question=student_question,
+                message=learner_answer,
+            )
             self._record_history("Learner", learner_answer)
             task = (
                 "Trong lớp học chung, student agent vừa hỏi người học.\n"
@@ -173,6 +211,13 @@ class ClassroomSession:
                 "Hãy đánh giá câu trả lời theo đúng response contract."
             )
         else:
+            self._log_event(
+                "learner_timeout",
+                actor="learner",
+                target="student",
+                channel="shared",
+                related_question=student_question,
+            )
             task = (
                 "Trong lớp học chung, student agent đã hỏi nhưng người học không trả lời kịp.\n"
                 "timeout_status: timed_out\n"
@@ -182,6 +227,7 @@ class ClassroomSession:
         prompt = self._build_prompt(mode="shared_classroom", task=task)
         response = self._run_json_agent(self.ta_agent, prompt)
         self._record_history("TA", response.get("reply", ""))
+        self._log_agent_message("teacher", response, channel="shared", target="learner")
         return response
 
     def start_private_student_round(self) -> dict[str, Any]:
@@ -195,10 +241,20 @@ class ClassroomSession:
         response = self._run_json_agent(self.student_agent, prompt)
         if response.get("reply"):
             self._record_history("Student Agent", response["reply"])
+        self._log_agent_message("student", response, channel="private_student", target="learner")
         return response
 
     def finish_private_student_round(self, student_question: str, learner_answer: str | None) -> dict[str, Any]:
         if learner_answer:
+            self._log_event(
+                "learner_message",
+                actor="learner",
+                target="student",
+                channel="private_student",
+                message_kind="answer",
+                related_question=student_question,
+                message=learner_answer,
+            )
             self._record_history("Learner", learner_answer)
             task = (
                 "Trong chat riêng, bạn vừa hỏi người học.\n"
@@ -207,6 +263,13 @@ class ClassroomSession:
                 "Hãy đánh giá câu trả lời theo đúng response contract."
             )
         else:
+            self._log_event(
+                "learner_timeout",
+                actor="learner",
+                target="student",
+                channel="private_student",
+                related_question=student_question,
+            )
             task = (
                 "Trong chat riêng, người học không trả lời kịp.\n"
                 "timeout_status: timed_out\n"
@@ -217,12 +280,21 @@ class ClassroomSession:
         response = self._run_json_agent(self.student_agent, prompt)
         if response.get("reply"):
             self._record_history("Student Agent", response["reply"])
+        self._log_agent_message("student", response, channel="private_student", target="learner")
         return response
 
     def generate_material(self, material_type: str, instructions: str = "") -> dict[str, Any]:
         material_type = material_type.strip().lower()
         if material_type not in {"quiz", "flashcard", "mindmap"}:
             raise ValueError("material_type must be quiz, flashcard, or mindmap")
+        self._log_event(
+            "material_requested",
+            actor="learner",
+            target="generator",
+            channel="material",
+            material_type=material_type,
+            instructions=instructions.strip(),
+        )
 
         prompt = self._build_prompt(
             mode="learning_material_generation",
@@ -238,6 +310,8 @@ class ClassroomSession:
         parsed_response = _parse_json_response(final_response.text)
         if not parsed_response:
             parsed_response = _fallback_material_payload(initial_run.tool_results, material_type)
+        self._log_agent_message("generator", parsed_response, channel="material", target="learner")
+        self._log_material_result(material_type, initial_run.tool_results)
         return {
             "agent_response": parsed_response,
             "tool_calls": [{"name": call.name, "args": call.args} for call in initial_run.tool_calls],
@@ -312,6 +386,74 @@ class ClassroomSession:
             return
         self.chat_history.append(f"{speaker}: {cleaned}")
         self.chat_history = self.chat_history[-10:]
+
+    def _log_event(self, event_type: str, **fields: Any) -> None:
+        if not self.logger:
+            return
+        slide = self.get_current_slide()
+        self.logger.log_event(
+            event_type,
+            source_file=self.deck.source_path.name,
+            markdown_file=self.deck.markdown_path.name,
+            slide_number=slide.number,
+            slide_title=slide.title,
+            **fields,
+        )
+
+    def _log_agent_message(
+        self,
+        actor: str,
+        payload: dict[str, Any],
+        *,
+        channel: str,
+        target: str,
+    ) -> None:
+        reply = str(payload.get("reply", "")).strip()
+        if payload.get("intent") == "wait" and not reply:
+            self._log_event(
+                "agent_wait",
+                actor=actor,
+                target=target,
+                channel=channel,
+                intent="wait",
+            )
+            return
+        if not reply:
+            return
+        self._log_event(
+            "agent_message",
+            actor=actor,
+            target=target,
+            channel=channel,
+            intent=str(payload.get("intent", "")).strip(),
+            action=str(payload.get("action", "")).strip(),
+            citations=_normalize_display_refs(payload.get("citations") or payload.get("evidence_ids")),
+            message=reply,
+        )
+
+    def _log_material_result(self, material_type: str, tool_results: list[dict[str, Any]]) -> None:
+        if not tool_results:
+            self._log_event(
+                "material_generated",
+                actor="generator",
+                channel="material",
+                material_type=material_type,
+                status="no_tool_result",
+            )
+            return
+        first_result = tool_results[0].get("result", {})
+        self._log_event(
+            "material_generated",
+            actor="generator",
+            channel="material",
+            material_type=material_type,
+            title=str(first_result.get("title", "")).strip(),
+            content_format=str(first_result.get("content_format", "")).strip(),
+            item_count=int(first_result.get("item_count", 0) or 0),
+            citations=_normalize_display_refs(first_result.get("citations")),
+            tool_names=[result.get("tool") for result in tool_results],
+            status=str(first_result.get("status", "")).strip() or "success",
+        )
 
 
 class MockProvider:
@@ -408,12 +550,26 @@ def main() -> None:
     markdown_path = ensure_slide_markdown(slide_path, Path(args.ingested_dir))
     deck = LectureDeck.from_markdown(slide_path, markdown_path)
     provider = make_provider(args.provider)
-    session = ClassroomSession(deck=deck, provider=provider, model=args.model)
+    session_id = f"cli-{uuid.uuid4()}"
+    logger = ClassroomLogger(session_id=session_id, source="cli")
+    session = ClassroomSession(deck=deck, provider=provider, model=args.model, logger=logger)
 
     initial_slide = args.current_slide or _prompt_for_slide(deck)
-    session.set_current_slide(initial_slide)
+    session.set_current_slide(initial_slide, reason="bootstrap")
     interaction_mode = args.mode or _prompt_for_mode()
     single_agent = _resolve_single_agent_choice(interaction_mode, args.agent)
+    logger.log_event(
+        "session_started",
+        actor="system",
+        interaction_mode=interaction_mode,
+        single_agent=single_agent,
+        provider=args.provider,
+        model=args.model,
+        source_file=deck.source_path.name,
+        markdown_file=deck.markdown_path.name,
+        slide_number=session.current_slide,
+        slide_title=session.get_current_slide().title,
+    )
 
     print(f"Loaded lecture: {deck.source_path.name}")
     print(f"Markdown cache: {deck.markdown_path}")
@@ -428,6 +584,16 @@ def main() -> None:
         if not raw:
             continue
         if raw in {"exit", "quit"}:
+            logger.log_event(
+                "session_closed",
+                actor="system",
+                interaction_mode=interaction_mode,
+                single_agent=single_agent,
+                source_file=deck.source_path.name,
+                markdown_file=deck.markdown_path.name,
+                slide_number=session.current_slide,
+                slide_title=session.get_current_slide().title,
+            )
             print("Thoat classroom.")
             return
         if raw == "help":
@@ -439,6 +605,16 @@ def main() -> None:
         if raw == "mode":
             interaction_mode = _prompt_for_mode()
             single_agent = _resolve_single_agent_choice(interaction_mode, None)
+            logger.log_event(
+                "mode_changed",
+                actor="learner",
+                interaction_mode=interaction_mode,
+                single_agent=single_agent,
+                source_file=deck.source_path.name,
+                markdown_file=deck.markdown_path.name,
+                slide_number=session.current_slide,
+                slide_title=session.get_current_slide().title,
+            )
             print(_help_text(interaction_mode, single_agent))
             continue
         if raw == "agent":
@@ -446,12 +622,22 @@ def main() -> None:
                 print("Lenh nay chi dung trong single-agent mode.")
                 continue
             single_agent = _prompt_for_single_agent()
+            logger.log_event(
+                "agent_changed",
+                actor="learner",
+                interaction_mode=interaction_mode,
+                single_agent=single_agent,
+                source_file=deck.source_path.name,
+                markdown_file=deck.markdown_path.name,
+                slide_number=session.current_slide,
+                slide_title=session.get_current_slide().title,
+            )
             print(f"Da chuyen sang agent: {single_agent}")
             continue
         if raw.startswith("slide "):
             try:
                 slide_no = int(raw.split(maxsplit=1)[1])
-                slide = session.set_current_slide(slide_no)
+                slide = session.set_current_slide(slide_no, reason="cli_command")
             except (ValueError, IndexError) as exc:
                 print(f"Khong doi duoc slide: {exc}")
                 continue

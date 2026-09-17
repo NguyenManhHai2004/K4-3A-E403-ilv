@@ -1,0 +1,3 @@
+- Trích nội dung kiến thức sai nguồn
+- Các agent nói chồng nhau
+- Làm thiếu `must_do` khi query bao gồm nhiều yêu cầu

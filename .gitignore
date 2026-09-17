@@ -10,4 +10,4 @@ __pycache__/
 .DS_Store
 data/
 tasks/
-
+codebase/agents/data/logs/
