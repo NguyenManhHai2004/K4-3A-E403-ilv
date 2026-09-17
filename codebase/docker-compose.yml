@@ -1,0 +1,49 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: classroom-frontend-dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - WATCHPACK_POLLING=true
+    env_file:
+      - path: ./agents/.env
+        required: false
+    volumes:
+      # Mount code frontend để hot reload
+      - ./frontend:/app/frontend
+      # Giữ nguyên node_modules và .next build cache trong container
+      - /app/frontend/node_modules
+      - /app/frontend/.next
+      # Mount agents vào đúng đường dẫn ../agents để Next.js route (/api/classroom, /api/slides) gọi được
+      - ./agents:/app/agents
+    depends_on:
+      - agents
+
+  agents:
+    build:
+      context: ./agents
+      dockerfile: Dockerfile
+      args:
+        INSTALL_DOCLING: ${INSTALL_DOCLING:-false}
+    container_name: classroom-agents-dev
+    working_dir: /app/codebase/agents
+    stdin_open: true
+    tty: true
+    init: true
+    env_file:
+      - path: ./agents/.env
+        required: false
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    volumes:
+      # Mount code agents để cập nhật ngay khi sửa code
+      - ./agents:/app/codebase/agents
+    command: ["tail", "-f", "/dev/null"]

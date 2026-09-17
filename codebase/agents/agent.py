@@ -21,7 +21,7 @@ class Agent:
         *,
         system_prompt: str,
         tools: list[dict[str, Any]] | None = None,
-        model: str | None = None,
+        model: str | None = 'gpt-4o-mini',
     ) -> None:
         self.provider = provider
         self.system_prompt = system_prompt

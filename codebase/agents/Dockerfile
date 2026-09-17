@@ -13,19 +13,17 @@ RUN apt-get update \
 
 WORKDIR /app/codebase/agents
 
+COPY requirements.txt ./
+
 RUN python -m pip install --upgrade pip
-RUN python -m pip install \
-    "openai>=1.0.0" \
-    "anthropic>=0.34.0" \
-    "google-genai>=0.8.0" \
-    "PyYAML>=6.0" \
-    "requests>=2.31.0" \
-    "python-pptx>=1.0"
+# Keep docling optional so the default dev image stays much smaller.
+RUN grep -vi '^docling' requirements.txt > requirements-core.txt \
+    && python -m pip install -r requirements-core.txt
 
 RUN if [ "$INSTALL_DOCLING" = "true" ]; then python -m pip install "docling>=2.0"; fi
 
-COPY codebase/agents /app/codebase/agents
+COPY . /app/codebase/agents
 
 RUN mkdir -p /app/codebase/agents/data/ingested
 
-CMD ["python", "classroom_cli.py", "--provider", "openai"]
+CMD ["tail", "-f", "/dev/null"]
