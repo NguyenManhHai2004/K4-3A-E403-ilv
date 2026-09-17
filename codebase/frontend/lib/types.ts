@@ -1,6 +1,7 @@
 export type AgentKey = "teacher" | "student" | "generator";
 export type SenderType = AgentKey | "user";
 export type AgentFilter = "all" | AgentKey;
+export type LectureDayId = "day1" | "day2";
 
 export interface Message {
   id: number;
@@ -10,8 +11,117 @@ export interface Message {
   avatar: string;
   time: string;
   text: string;
+  citation?: string;
   activeRecallPrompt?: boolean;
   hasArtifactNotice?: boolean;
+}
+
+export interface PendingPrompt {
+  mode: "shared" | "student";
+  question: string;
+}
+
+export interface ClassroomAgentEvent {
+  kind: "message";
+  agent: AgentKey;
+  channel: "shared" | "private_ta" | "private_student" | "material";
+  intent: string;
+  reply: string;
+  citations: string[];
+  active_recall?: boolean;
+}
+
+export interface QuizArtifactItem {
+  question: string;
+  options: string[];
+  correct_option: string;
+  explanation: string;
+  citations: string[];
+}
+
+export interface QuizArtifactContent {
+  type: "quiz";
+  title: string;
+  language: string;
+  covered_until: string;
+  instructions: string;
+  items: QuizArtifactItem[];
+}
+
+export interface FlashcardArtifactItem {
+  front: string;
+  back: string;
+  citations: string[];
+}
+
+export interface FlashcardArtifactContent {
+  type: "flashcard";
+  title: string;
+  language: string;
+  covered_until: string;
+  instructions: string;
+  items: FlashcardArtifactItem[];
+}
+
+export interface MindmapBranch {
+  label: string;
+  citations: string[];
+  children: MindmapBranch[];
+}
+
+export interface MindmapArtifactContent {
+  type: "mindmap";
+  title: string;
+  language: string;
+  covered_until: string;
+  instructions: string;
+  root_topic: string;
+  citations: string[];
+  branches: MindmapBranch[];
+}
+
+export interface GeneratedArtifactBase {
+  material_type: "quiz" | "flashcard" | "mindmap";
+  title: string;
+  covered_until: string;
+  content_format: "json" | "xml";
+  item_count: number;
+  citations: string[];
+}
+
+export interface QuizArtifact extends GeneratedArtifactBase {
+  material_type: "quiz";
+  content: QuizArtifactContent;
+}
+
+export interface FlashcardArtifact extends GeneratedArtifactBase {
+  material_type: "flashcard";
+  content: FlashcardArtifactContent;
+}
+
+export interface MindmapArtifact extends GeneratedArtifactBase {
+  material_type: "mindmap";
+  content: MindmapArtifactContent;
+}
+
+export type GeneratedArtifact = QuizArtifact | FlashcardArtifact | MindmapArtifact;
+
+export interface ArtifactStore {
+  quiz: QuizArtifact | null;
+  flashcard: FlashcardArtifact | null;
+  mindmap: MindmapArtifact | null;
+}
+
+export interface ClassroomSessionSnapshot {
+  sessionId: string;
+  dayId: LectureDayId;
+  currentSlide: number;
+  currentSlideTitle: string;
+  maxSlide: number;
+  pendingPrompt: PendingPrompt | null;
+  artifacts: ArtifactStore;
+  historyTopics: string[];
+  events: ClassroomAgentEvent[];
 }
 
 export interface Flashcard {

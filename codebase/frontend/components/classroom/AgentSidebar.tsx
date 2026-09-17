@@ -2,22 +2,29 @@ import type { AgentFilter, AgentKey } from "@/lib/types";
 
 interface AgentSidebarProps {
   agentFilter: AgentFilter;
+  historyTopics: string[];
   onSelect: (filter: AgentFilter) => void;
   onOpenProfile: (agent: AgentKey) => void;
   onOpenHistory: () => void;
 }
 
-const historyTopics = [
-  "Tại sao cần căn bậc 2 dk?",
-  "Phân biệt Query, Key, Value",
-  "Multi-head Attention lợi ích gì?",
+const defaultHistoryTopics = [
+  "Chuyển slide để các agent bắt đầu tương tác.",
+  "Hỏi TA để được giải thích kỹ hơn về slide hiện tại.",
+  "Gọi Material Bot để tạo quiz, flashcard hoặc mindmap.",
 ];
 
-export function AgentSidebar({ agentFilter, onSelect, onOpenProfile, onOpenHistory }: AgentSidebarProps) {
-  return (
-    <aside className="col-agents-sidebar">
-      <div className="sidebar-section-title">Danh sách AI Agents</div>
+export function AgentSidebar({
+  agentFilter,
+  historyTopics,
+  onSelect,
+  onOpenProfile,
+  onOpenHistory,
+}: AgentSidebarProps) {
+  const topics = historyTopics.length > 0 ? historyTopics : defaultHistoryTopics;
 
+  return (
+    <div className="agent-sidebar-panel">
       <div className="agent-cards-list">
         <div
           className={`agent-card${agentFilter === "all" ? " active" : ""}`}
@@ -118,7 +125,7 @@ export function AgentSidebar({ agentFilter, onSelect, onOpenProfile, onOpenHisto
           </button>
         </div>
         <div className="history-list">
-          {historyTopics.map((topic, i) => (
+          {topics.map((topic, i) => (
             <div key={topic} className={`history-item${i === 0 ? " active" : ""}`}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -128,6 +135,6 @@ export function AgentSidebar({ agentFilter, onSelect, onOpenProfile, onOpenHisto
           ))}
         </div>
       </div>
-    </aside>
+    </div>
   );
 }

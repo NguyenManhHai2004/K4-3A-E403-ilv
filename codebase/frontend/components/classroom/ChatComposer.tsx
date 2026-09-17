@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AgentFilter } from "@/lib/types";
 
 interface ChatComposerProps {
+  defaultTarget?: AgentFilter;
   onSend: (text: string, target: AgentFilter) => void;
 }
 
@@ -38,9 +39,13 @@ const quickPrompts: { type: string; className: string; label: string; text: stri
   },
 ];
 
-export function ChatComposer({ onSend }: ChatComposerProps) {
+export function ChatComposer({ defaultTarget = "all", onSend }: ChatComposerProps) {
   const [text, setText] = useState("");
-  const [target, setTarget] = useState<AgentFilter>("all");
+  const [target, setTarget] = useState<AgentFilter>(defaultTarget);
+
+  useEffect(() => {
+    setTarget(defaultTarget);
+  }, [defaultTarget]);
 
   function submit() {
     const trimmed = text.trim();

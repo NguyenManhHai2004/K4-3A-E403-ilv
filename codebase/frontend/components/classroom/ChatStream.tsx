@@ -45,6 +45,16 @@ export function ChatStream({ messages, typingLabel, onPreviewArtifacts }: ChatSt
                 </div>
                 <div className={`msg-bubble ${msg.senderType}`}>
                   <span dangerouslySetInnerHTML={{ __html: msg.text }} />
+                  
+                  {msg.citation && (
+                    <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/70 text-text-secondary text-xs rounded-full border border-border-focus/30 shadow-sm">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                      </svg>
+                      {msg.citation}
+                    </div>
+                  )}
 
                   {msg.activeRecallPrompt && (
                     <div className="active-recall-box">

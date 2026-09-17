@@ -1,24 +1,43 @@
 "use client";
 
 import { useState } from "react";
-import { flashcardsData } from "@/lib/mock-data";
 import { useToast } from "@/components/ui/ToastProvider";
+import type { FlashcardArtifact } from "@/lib/types";
 
-export function FlashcardPanel() {
+interface FlashcardPanelProps {
+  artifact: FlashcardArtifact | null;
+}
+
+export function FlashcardPanel({ artifact }: FlashcardPanelProps) {
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const { showToast } = useToast();
-  const card = flashcardsData[index];
+
+  if (!artifact || artifact.content.items.length === 0) {
+    return (
+      <div className="artifact-panel">
+        <div className="panel-header">
+          <span className="panel-badge flashcard-badge">3D Flashcards · Bấm để lật thẻ</span>
+        </div>
+        <div className="transcript-empty">
+          Chưa có flashcard nào. Hãy nhờ Material Bot tạo `flashcard` để bổ sung bộ thẻ ôn tập cho phần đã học.
+        </div>
+      </div>
+    );
+  }
+
+  const cards = artifact.content.items;
+  const card = cards[index];
 
   function navigate(delta: number) {
     setFlipped(false);
     setTimeout(() => {
-      setIndex((prev) => (prev + delta + flashcardsData.length) % flashcardsData.length);
+      setIndex((prev) => (prev + delta + cards.length) % cards.length);
     }, 150);
   }
 
   function markLearned() {
-    showToast(`✓ Đã đánh dấu nhớ thẻ "${card.term}"!`);
+    showToast(`✓ Đã đánh dấu nhớ thẻ "${card.front}"!`);
     navigate(1);
   }
 
@@ -34,7 +53,7 @@ export function FlashcardPanel() {
           3D Flashcards · Bấm để lật thẻ
         </span>
         <span className="fc-counter">
-          Thẻ {index + 1} / {flashcardsData.length}
+          Thẻ {index + 1} / {artifact.item_count}
         </span>
       </div>
 
@@ -42,14 +61,14 @@ export function FlashcardPanel() {
         <div className={`flashcard-inner${flipped ? " flipped" : ""}`}>
           <div className="flashcard-face flashcard-front">
             <div className="fc-tag">Khái niệm cốt lõi</div>
-            <div className="fc-main-term">{card.term}</div>
+            <div className="fc-main-term">{card.front}</div>
             <div className="fc-flip-hint">👆 Bấm vào đây để xem định nghĩa & công thức</div>
           </div>
           <div className="flashcard-face flashcard-back">
             <div className="fc-tag" style={{ color: "var(--student-color)" }}>
               Định nghĩa & Bản chất
             </div>
-            <div className="fc-back-definition" dangerouslySetInnerHTML={{ __html: card.def }} />
+            <div className="fc-back-definition">{card.back}</div>
             <div className="fc-flip-hint" style={{ color: "var(--student-color)" }}>
               👆 Bấm để lật lại mặt trước
             </div>

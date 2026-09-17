@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* ==========================================================================
    DESIGN SYSTEM & CSS RESET
    Light navy theme (design tokens adapted from VLearn AI Classroom's
@@ -92,46 +96,25 @@ html, body {
 }
 
 .brand-group {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  @apply flex items-center gap-3;
 }
 
 .brand-badge {
+  @apply w-8 h-8 rounded-lg flex items-center justify-center font-extrabold text-sm text-white;
   background: var(--accent-gradient);
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 14px;
-  color: white;
   box-shadow: 0 4px 14px rgba(11, 42, 77, 0.3);
 }
 
 .brand-title {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--text-primary);
+  @apply text-[15px] font-bold text-text-primary tracking-[-0.01em];
 }
 
 .brand-sub {
-  font-size: 12px;
-  color: var(--text-secondary);
-  background: var(--bg-surface-elevated);
-  padding: 2px 8px;
-  border-radius: 12px;
-  border: 1px solid var(--border-subtle);
-  margin-left: 6px;
+  @apply text-xs text-text-secondary bg-bg-surface-elevated px-2 py-0.5 rounded-xl border border-border-subtle ml-1.5;
 }
 
 .nav-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  @apply flex items-center gap-3;
 }
 
 .screen-switcher {
@@ -693,18 +676,93 @@ html, body {
 .classroom-grid {
   flex: 1;
   display: grid;
-  grid-template-columns: 280px 1fr 380px;
+  grid-template-columns: 320px minmax(0, 1fr) 400px;
   overflow: hidden;
   background: var(--bg-main);
 }
 
-/* COLUMN 1: LEFT SIDEBAR (Agents & History) */
-.col-agents-sidebar {
+.classroom-stage-panel {
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  overflow: hidden;
+}
+
+.classroom-stage-main {
+  border-inline: 1px solid var(--border-subtle);
+}
+
+.classroom-stage-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.classroom-stage-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.classroom-stage-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+/* COLUMN 1: LEFT SIDEBAR (Agents + Artifacts) */
+.classroom-left-sidebar {
   background: var(--bg-surface);
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 14px 12px;
+}
+
+.sidebar-section-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
   overflow: hidden;
+  box-shadow: 0 4px 18px rgba(11, 42, 77, 0.06);
+}
+
+.sidebar-section-toggle {
+  width: 100%;
+  border: none;
+  background: linear-gradient(180deg, rgba(248, 249, 250, 0.96), rgba(255, 255, 255, 0.98));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.sidebar-section-toggle:hover {
+  background: var(--bg-surface-elevated);
+}
+
+.sidebar-section-toggle.open {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sidebar-section-toggle-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
 }
 
 .sidebar-section-title {
@@ -713,14 +771,39 @@ html, body {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  padding: 14px 16px 8px 16px;
+}
+
+.sidebar-section-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 500;
+  text-align: left;
+}
+
+.sidebar-section-toggle-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.sidebar-section-chevron {
+  font-size: 16px;
+  color: var(--text-secondary);
 }
 
 .agent-cards-list {
-  padding: 0 10px;
+  padding: 12px 10px 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.agent-sidebar-panel {
+  display: flex;
+  flex-direction: column;
 }
 
 .agent-card {
@@ -834,7 +917,7 @@ html, body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  margin-top: 10px;
+  margin-top: 12px;
   border-top: 1px solid var(--border-subtle);
 }
 
@@ -899,6 +982,51 @@ html, body {
   background: var(--bg-main);
   overflow: hidden;
   position: relative;
+}
+
+.classroom-chat-sidebar {
+  min-width: 0;
+}
+
+.classroom-chat-meta {
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(10px);
+}
+
+.classroom-chat-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.classroom-chat-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.classroom-error-banner {
+  margin: 12px 18px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid #ffd4d6;
+  background: #fff3f4;
+  color: #9e171d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.classroom-loading-bar {
+  height: 3px;
+  background: linear-gradient(90deg, rgba(19, 77, 139, 0.1), rgba(19, 77, 139, 0.8), rgba(19, 77, 139, 0.1));
+  animation: shimmer 1.3s linear infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 0% 0%; }
+  to { background-position: 200% 0%; }
 }
 
 .chat-stream {
@@ -1219,14 +1347,14 @@ html, body {
 /* COLUMN 3: RIGHT SIDEBAR (ARTIFACTS SHOWCASE) */
 .col-artifacts-sidebar {
   background: var(--bg-surface);
-  border-left: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 220px;
 }
 
 .artifacts-header {
-  padding: 14px 18px;
+  padding: 14px 16px 10px;
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
@@ -1290,10 +1418,51 @@ html, body {
 .artifacts-body {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.slide-stage-canvas-shell {
+  position: relative;
+  width: 100%;
+}
+
+.btn-stage-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid rgba(11, 42, 77, 0.14);
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--teacher-color);
+  font-size: 16px;
+  font-weight: 800;
+  box-shadow: 0 10px 30px rgba(11, 42, 77, 0.16);
+  cursor: pointer;
+  z-index: 2;
+  transition: var(--transition-fast);
+}
+
+.btn-stage-nav.prev {
+  left: 14px;
+}
+
+.btn-stage-nav.next {
+  right: 14px;
+}
+
+.btn-stage-nav:hover:not(:disabled) {
+  transform: translateY(-50%) scale(1.05);
+  background: #fff;
+}
+
+.btn-stage-nav:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
 }
 
 /* ARTIFACT 1: QUIZ COMPONENT */
@@ -2041,6 +2210,63 @@ html, body {
 /* Responsive adjustments */
 @media (max-width: 1100px) {
   .classroom-grid {
-    grid-template-columns: 240px 1fr 320px;
+    grid-template-columns: 280px minmax(0, 1fr) 340px;
+  }
+
+  .classroom-stage-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .classroom-stage-meta {
+    align-items: flex-start;
+    text-align: left;
+  }
+}
+
+@media (max-width: 920px) {
+  .classroom-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(340px, auto) minmax(420px, 1fr);
+  }
+
+  .classroom-left-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+    max-height: 48vh;
+  }
+
+  .classroom-stage-main {
+    border-inline: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .classroom-top-bar {
+    gap: 10px;
+    height: auto;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+  }
+
+  .classroom-status-group {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .classroom-mode-select {
+    overflow-x: auto;
+  }
+
+  .classroom-chat-sidebar {
+    border-left: none;
+  }
+
+  .btn-stage-nav.prev {
+    left: 8px;
+  }
+
+  .btn-stage-nav.next {
+    right: 8px;
   }
 }

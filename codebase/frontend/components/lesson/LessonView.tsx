@@ -1,34 +1,46 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { checkpointsByDay } from "@/lib/mock-data";
-import { lectureDays, type LectureDay } from "@/lib/lecture-data";
+import { findLectureDay, lectureDays, type LectureDay } from "@/lib/lecture-data";
 import { LessonSidebar } from "./LessonSidebar";
 import { PdfSlideStage } from "./PdfSlideStage";
 import { SlideFooterNav } from "./SlideFooterNav";
 import { CheckpointModal } from "./CheckpointModal";
 import { TranscriptPanel } from "@/components/lecture/TranscriptPanel";
 import { useToast } from "@/components/ui/ToastProvider";
+import type { LectureDayId } from "@/lib/types";
 
 interface LessonViewProps {
   transcriptContents: Record<string, string>;
+  initialDayId?: LectureDayId;
+  initialSlide?: number;
 }
 
-export function LessonView({ transcriptContents }: LessonViewProps) {
-  const [dayId, setDayId] = useState<LectureDay["id"]>(lectureDays[0].id);
-  const [pageIndex, setPageIndex] = useState(0);
+export function LessonView({ transcriptContents, initialDayId, initialSlide = 1 }: LessonViewProps) {
+  const resolvedDayId = findLectureDay(initialDayId).id;
+  const resolvedSlide = Math.max(1, initialSlide);
+  const [dayId, setDayId] = useState<LectureDay["id"]>(resolvedDayId);
+  const [pageIndex, setPageIndex] = useState(resolvedSlide - 1);
   const [pageCount, setPageCount] = useState(1);
   const [answeredCheckpointIds, setAnsweredCheckpointIds] = useState<Set<number>>(new Set());
   const [activeCheckpointId, setActiveCheckpointId] = useState<number | null>(null);
   const { showToast } = useToast();
 
-  const day = lectureDays.find((d) => d.id === dayId) ?? lectureDays[0];
+  const day = findLectureDay(dayId);
   const [transcriptId, setTranscriptId] = useState(day.transcripts[0]?.id);
   const activeTranscript = day.transcripts.find((t) => t.id === transcriptId) ?? day.transcripts[0];
 
   const checkpoints = checkpointsByDay[dayId] ?? [];
   const activeCheckpoint = checkpoints.find((c) => c.id === activeCheckpointId) ?? null;
+  const keyboardPageChangeRef = useRef<(delta: number) => void>(() => {});
+
+  useEffect(() => {
+    if (pageIndex >= pageCount) {
+      setPageIndex(Math.max(pageCount - 1, 0));
+    }
+  }, [pageCount, pageIndex]);
 
   function handleSelectDay(id: LectureDay["id"]) {
     const nextDay = lectureDays.find((d) => d.id === id);
@@ -48,6 +60,32 @@ export function LessonView({ transcriptContents }: LessonViewProps) {
       if (match) setActiveCheckpointId(match.id);
     }
   }
+  keyboardPageChangeRef.current = changePage;
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      const isEditable =
+        Boolean(target?.isContentEditable) ||
+        tagName === "input" ||
+        tagName === "textarea" ||
+        tagName === "select";
+      if (isEditable) return;
+
+      if (event.key === "ArrowLeft" && pageIndex > 0) {
+        event.preventDefault();
+        keyboardPageChangeRef.current(-1);
+      }
+      if (event.key === "ArrowRight" && pageIndex < pageCount - 1) {
+        event.preventDefault();
+        keyboardPageChangeRef.current(1);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pageCount, pageIndex]);
 
   function handleCheckpointDone() {
     if (activeCheckpointId !== null) {
@@ -70,7 +108,7 @@ export function LessonView({ transcriptContents }: LessonViewProps) {
           </div>
 
           <Link
-            href="/classroom"
+            href={`/classroom?day=${day.id}&slide=${pageIndex + 1}`}
             className="btn-enter-classroom"
             onClick={() => showToast("✨ Đã vào chế độ Multi-Agent Classroom!")}
           >
@@ -96,7 +134,30 @@ export function LessonView({ transcriptContents }: LessonViewProps) {
 
           <div className="lecture-screen-wrapper">
             <div className="lecture-screen-label">🎬 Màn chiếu</div>
-            <PdfSlideStage objectUrl={day.slidePdfPath} pageIndex={pageIndex} onPageCount={setPageCount} />
+            <div className="slide-stage-canvas-shell">
+              <button
+                className="btn-stage-nav prev"
+                onClick={() => changePage(-1)}
+                disabled={pageIndex === 0}
+                aria-label="Slide trước"
+              >
+                ◀
+              </button>
+              <PdfSlideStage
+                objectUrl={day.slidePdfUrl}
+                fallbackUrl={day.slidePdfFallbackPath}
+                pageIndex={pageIndex}
+                onPageCount={setPageCount}
+              />
+              <button
+                className="btn-stage-nav next"
+                onClick={() => changePage(1)}
+                disabled={pageIndex === pageCount - 1}
+                aria-label="Slide kế tiếp"
+              >
+                ▶
+              </button>
+            </div>
             <SlideFooterNav
               index={pageIndex}
               total={pageCount}

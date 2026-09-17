@@ -18,6 +18,7 @@ export const initialConversation: Message[] = [
     avatar: "👨‍🏫",
     time: "10:15",
     text: `Chào bạn! Chúng ta vừa đi qua slide về cơ chế <strong>Scaled Dot-Product Attention</strong>. Trọng tâm của bài này là hiểu rõ cách mà ma trận <span class="code-chip">Query</span> tìm kiếm thông tin phù hợp trong <span class="code-chip">Key</span> để trích xuất <span class="code-chip">Value</span>. Bạn thấy phần nào còn cần giải thích sâu hơn không?`,
+    citation: "Trong video ở 00:08",
   },
   {
     id: 2,

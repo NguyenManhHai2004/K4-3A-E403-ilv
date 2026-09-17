@@ -1,15 +1,33 @@
 "use client";
 
 import { useState } from "react";
-import { quizQuestions } from "@/lib/mock-data";
 import { useToast } from "@/components/ui/ToastProvider";
+import type { QuizArtifact } from "@/lib/types";
 
 type Answered = Record<number, { choice: string; isCorrect: boolean } | undefined>;
 
-export function QuizPanel() {
+interface QuizPanelProps {
+  artifact: QuizArtifact | null;
+}
+
+export function QuizPanel({ artifact }: QuizPanelProps) {
   const [answered, setAnswered] = useState<Answered>({});
   const { showToast } = useToast();
 
+  if (!artifact) {
+    return (
+      <div className="artifact-panel">
+        <div className="panel-header">
+          <span className="panel-badge quiz-badge">Quiz Ôn Tập Nhanh · Active Recall</span>
+        </div>
+        <div className="transcript-empty">
+          Chưa có quiz nào được tạo. Hãy nhắn Material Bot với từ khóa `quiz` để sinh bộ câu hỏi thật từ slide hiện tại.
+        </div>
+      </div>
+    );
+  }
+
+  const quizQuestions = artifact.content.items;
   const score = Object.values(answered).filter((a) => a?.isCorrect).length;
 
   function handleAnswer(qId: number, choice: string, isCorrect: boolean) {
@@ -32,46 +50,47 @@ export function QuizPanel() {
           Quiz Ôn Tập Nhanh · Active Recall
         </span>
         <span className="quiz-score-live">
-          Điểm: {score}/{quizQuestions.length}
+          Điểm: {score}/{artifact.item_count}
         </span>
       </div>
 
       {quizQuestions.map((q, i) => {
-        const result = answered[q.id];
+        const questionId = i + 1;
+        const result = answered[questionId];
         return (
           <div
-            key={q.id}
+            key={`${artifact.title}-${questionId}`}
             className="quiz-question-box"
             style={i > 0 ? { borderTop: "1px solid var(--border-subtle)", paddingTop: 10 } : undefined}
           >
             <div className="quiz-question-title">
-              <strong>Câu {q.id}:</strong> <span dangerouslySetInnerHTML={{ __html: q.prompt }} />
+              <strong>Câu {questionId}:</strong> {q.question}
             </div>
             <div className="quiz-options">
-              {q.options.map((opt) => {
+              {q.options.map((opt, optionIndex) => {
+                const optionKey = String.fromCharCode(65 + optionIndex);
+                const isCorrect = opt === q.correct_option;
                 let cls = "quiz-opt-btn";
                 if (result) {
                   cls += " disabled";
-                  if (opt.key === result.choice) cls += result.isCorrect ? " correct" : " wrong";
+                  if (optionKey === result.choice) cls += result.isCorrect ? " correct" : " wrong";
                 }
                 return (
                   <button
-                    key={opt.key}
+                    key={`${questionId}-${optionKey}`}
                     className={cls}
-                    onClick={() => handleAnswer(q.id, opt.key, opt.isCorrect)}
+                    onClick={() => handleAnswer(questionId, optionKey, isCorrect)}
                   >
-                    <span className="quiz-opt-key">{opt.key}</span> {opt.text}
+                    <span className="quiz-opt-key">{optionKey}</span> {opt}
                   </button>
                 );
               })}
             </div>
             {result && (
-              <div
-                className={`quiz-feedback-box ${result.isCorrect ? "correct" : "wrong"}`}
-                dangerouslySetInnerHTML={{
-                  __html: result.isCorrect ? q.correctFeedback : q.wrongFeedback,
-                }}
-              />
+              <div className={`quiz-feedback-box ${result.isCorrect ? "correct" : "wrong"}`}>
+                {result.isCorrect ? "Chính xác. " : "Chưa đúng. "}
+                {q.explanation}
+              </div>
             )}
           </div>
         );

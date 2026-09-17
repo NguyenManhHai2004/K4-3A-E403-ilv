@@ -1,10 +1,41 @@
 "use client";
 
-import { mindmapLeaves } from "@/lib/mock-data";
 import { useToast } from "@/components/ui/ToastProvider";
+import type { MindmapArtifact, MindmapBranch } from "@/lib/types";
 
-export function MindmapPanel() {
+interface MindmapPanelProps {
+  artifact: MindmapArtifact | null;
+}
+
+function BranchTree({ branch, onSelect }: { branch: MindmapBranch; onSelect: (label: string) => void }) {
+  return (
+    <div className="mm-branch">
+      <div className="mm-node-leaf" onClick={() => onSelect(branch.label)}>
+        <span>{branch.label}</span>
+        <span className="mm-leaf-tag">{branch.citations[0] ?? "slide"}</span>
+      </div>
+      {branch.children.map((child) => (
+        <BranchTree key={`${branch.label}-${child.label}`} branch={child} onSelect={onSelect} />
+      ))}
+    </div>
+  );
+}
+
+export function MindmapPanel({ artifact }: MindmapPanelProps) {
   const { showToast } = useToast();
+
+  if (!artifact) {
+    return (
+      <div className="artifact-panel">
+        <div className="panel-header">
+          <span className="panel-badge mindmap-badge">Mindmap Kiến thức Tương tác</span>
+        </div>
+        <div className="transcript-empty">
+          Chưa có mindmap nào. Hãy yêu cầu Material Bot tạo `mindmap` để hệ thống dựng sơ đồ từ nội dung slide.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="artifact-panel">
@@ -23,16 +54,15 @@ export function MindmapPanel() {
 
       <div className="mindmap-tree">
         <div className="mm-node-root">
-          <span>🧠 Transformer Attention Architecture</span>
+          <span>🧠 {artifact.content.root_topic}</span>
         </div>
-        <div className="mm-branch">
-          {mindmapLeaves.map((leaf) => (
-            <div key={leaf.label} className="mm-node-leaf" onClick={() => showToast(leaf.detail)}>
-              <span>{leaf.label}</span>
-              <span className="mm-leaf-tag">{leaf.tag}</span>
-            </div>
-          ))}
-        </div>
+        {artifact.content.branches.map((branch) => (
+          <BranchTree
+            key={branch.label}
+            branch={branch}
+            onSelect={(label) => showToast(`Mindmap: ${label}`)}
+          />
+        ))}
       </div>
     </div>
   );
