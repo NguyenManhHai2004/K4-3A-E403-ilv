@@ -1,8 +1,10 @@
-import type { AgentFilter } from "@/lib/types";
+import type { AgentFilter, AgentKey } from "@/lib/types";
 
 interface AgentSidebarProps {
   agentFilter: AgentFilter;
   onSelect: (filter: AgentFilter) => void;
+  onOpenProfile: (agent: AgentKey) => void;
+  onOpenHistory: () => void;
 }
 
 const historyTopics = [
@@ -11,7 +13,7 @@ const historyTopics = [
   "Multi-head Attention lợi ích gì?",
 ];
 
-export function AgentSidebar({ agentFilter, onSelect }: AgentSidebarProps) {
+export function AgentSidebar({ agentFilter, onSelect, onOpenProfile, onOpenHistory }: AgentSidebarProps) {
   return (
     <aside className="col-agents-sidebar">
       <div className="sidebar-section-title">Danh sách AI Agents</div>
@@ -25,7 +27,7 @@ export function AgentSidebar({ agentFilter, onSelect }: AgentSidebarProps) {
           <div className="agent-meta">
             <div className="agent-name-row">
               <span className="agent-name">Lớp học chung</span>
-              <span className="agent-role-pill" style={{ background: "rgba(168, 85, 247, 0.2)", color: "#d8b4fe" }}>
+              <span className="agent-role-pill" style={{ background: "rgba(19, 77, 139, 0.15)", color: "#134d8b" }}>
                 3 Tác tử
               </span>
             </div>
@@ -45,6 +47,16 @@ export function AgentSidebar({ agentFilter, onSelect }: AgentSidebarProps) {
             </div>
             <div className="agent-status-text">Giải đáp & phân tích bản chất</div>
           </div>
+          <button
+            className="agent-card-info-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenProfile("teacher");
+            }}
+            title="Xem hồ sơ"
+          >
+            ⓘ
+          </button>
         </div>
 
         <div
@@ -59,6 +71,16 @@ export function AgentSidebar({ agentFilter, onSelect }: AgentSidebarProps) {
             </div>
             <div className="agent-status-text">Đố phản biện & gợi ý ôn tập</div>
           </div>
+          <button
+            className="agent-card-info-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenProfile("student");
+            }}
+            title="Xem hồ sơ"
+          >
+            ⓘ
+          </button>
         </div>
 
         <div
@@ -73,11 +95,28 @@ export function AgentSidebar({ agentFilter, onSelect }: AgentSidebarProps) {
             </div>
             <div className="agent-status-text">Tạo Quiz, Flashcard & Mindmap</div>
           </div>
+          <button
+            className="agent-card-info-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenProfile("generator");
+            }}
+            title="Xem hồ sơ"
+          >
+            ⓘ
+          </button>
         </div>
       </div>
 
       <div className="chat-history-section">
-        <div className="sidebar-section-title">Chủ đề thảo luận gần đây</div>
+        <div className="chat-history-section-head">
+          <div className="sidebar-section-title" style={{ padding: "14px 0 8px 16px" }}>
+            Chủ đề thảo luận gần đây
+          </div>
+          <button className="btn-view-all-history" onClick={onOpenHistory}>
+            Xem tất cả
+          </button>
+        </div>
         <div className="history-list">
           {historyTopics.map((topic, i) => (
             <div key={topic} className={`history-item${i === 0 ? " active" : ""}`}>

@@ -1,96 +1,13 @@
 import type {
+  AgentProfile,
+  ChatHistorySession,
+  Checkpoint,
   Flashcard,
-  Lesson,
   MindmapLeaf,
   Message,
   QuizQuestion,
-  Slide,
 } from "./types";
-
-export const lessons: Lesson[] = [
-  { number: 1, name: "Cơ chế Attention & Transformer", status: "Đang học", slideCount: 4 },
-  { number: 2, name: "Prompt Engineering Nâng Cao", status: "Sắp tới", slideCount: 6 },
-  { number: 3, name: "RAG & Vector Database Search", status: "Chưa học", slideCount: 5 },
-  { number: 4, name: "Multi-Agent Collaboration Architecture", status: "Chưa học", slideCount: 8 },
-];
-
-export const slidesData: Slide[] = [
-  {
-    tag: "Khái niệm nền tảng",
-    title: "1. Tại sao Attention Mechanism ra đời?",
-    body: `
-      <p style="margin-bottom: 14px;">Trước khi có Transformer (2017), các mô hình dịch máy và xử lý ngôn ngữ chủ yếu dựa trên <strong>RNN và LSTM</strong>. Tuy nhiên, các kiến trúc này gặp hai giới hạn chí mạng:</p>
-      <ul style="padding-left: 20px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 8px;">
-        <li><strong>Mất mát thông tin đường dài (Long-term Dependency):</strong> Khi câu văn quá dài, các từ ở đầu câu dễ bị lãng quên ở cuối câu.</li>
-        <li><strong>Không tính toán song song được (Sequential bottleneck):</strong> Từ sau phải chờ từ trước tính xong, khiến việc huấn luyện trên dữ liệu khổng lồ tốn hàng tháng trời.</li>
-      </ul>
-      <p>Cơ chế <strong>Self-Attention</strong> ra đời với bài báo huyền thoại <em>"Attention Is All You Need"</em>, giải quyết triệt để 2 vấn đề này bằng cách cho phép mỗi từ kết nối trực tiếp với mọi từ khác trong câu cùng một lúc.</p>
-    `,
-  },
-  {
-    tag: "Công thức toán học & Bản chất",
-    title: "2. Scaled Dot-Product Attention hoạt động như thế nào?",
-    body: `
-      <p>Trọng tâm của Transformer là phép tính tích vô hướng có chia tỷ lệ giữa ba ma trận <strong>Query (Q)</strong>, <strong>Key (K)</strong> và <strong>Value (V)</strong>:</p>
-
-      <div class="attention-diagram-box">
-        <div class="vector-node q">
-          <span>Query (Q)</span>
-          <span class="vector-desc">Từ đang tìm kiếm</span>
-        </div>
-        <div class="diagram-operator">×</div>
-        <div class="vector-node k">
-          <span>Key (K)</span>
-          <span class="vector-desc">Từ được đối chiếu</span>
-        </div>
-        <div class="diagram-operator">÷ √d<sub>k</sub> ➔ Softmax ➔ ×</div>
-        <div class="vector-node v">
-          <span>Value (V)</span>
-          <span class="vector-desc">Thông tin truyền đi</span>
-        </div>
-      </div>
-
-      <div style="text-align: center; margin-top: 14px;">
-        <div class="formula-badge">Attention(Q, K, V) = softmax( (Q · K<sup>T</sup>) / √d<sub>k</sub> ) · V</div>
-      </div>
-      <p style="margin-top: 14px; font-size: 13px; color: #9ca3af;">
-        * Lưu ý: Chia cho <strong>√d<sub>k</sub></strong> để giữ phương sai ổn định, không làm softmax bị bão hòa. Hãy mở <strong>Multi-Agent Classroom</strong> để cùng thảo luận chi tiết điều này với Bạn học và Giảng viên AI!
-      </p>
-    `,
-  },
-  {
-    tag: "Kiến trúc mở rộng",
-    title: "3. Multi-Head Attention: Đa góc nhìn ngữ nghĩa",
-    body: `
-      <p style="margin-bottom: 14px;">Thay vì chỉ tính một hàm attention duy nhất, kiến trúc Transformer chia các vector thành <strong>h heads (thường là 8 hoặc 16 heads)</strong> chạy song song.</p>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px;">
-        <div style="background: rgba(255, 255, 255, 0.03); padding: 14px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08);">
-          <strong style="color: #6366f1;">Head 1 · Quan hệ ngữ pháp:</strong>
-          <p style="font-size: 13px; color: #d1d5db; margin-top: 6px;">Tập trung liên kết Chủ ngữ với Động từ chính ("The dog ... barked").</p>
-        </div>
-        <div style="background: rgba(255, 255, 255, 0.03); padding: 14px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08);">
-          <strong style="color: #10b981;">Head 2 · Đại từ thay thế:</strong>
-          <p style="font-size: 13px; color: #d1d5db; margin-top: 6px;">Tập trung giải nghĩa đại từ ("it" chỉ đồ vật hay con vật xuất hiện trước đó).</p>
-        </div>
-      </div>
-      <p style="margin-top: 14px;">Nhờ vậy, mô hình thu được hiểu biết toàn diện về ngữ nghĩa văn bản ở nhiều tầng trừu tượng khác nhau.</p>
-    `,
-  },
-  {
-    tag: "Ứng dụng thực tế",
-    title: "4. Tác động tới ChatGPT, Gemini & Kỷ nguyên LLMs",
-    body: `
-      <p style="margin-bottom: 14px;">Mọi mô hình ngôn ngữ lớn (LLMs) đột phá hiện nay như <strong>GPT-4, Claude 3.5, Gemini 1.5 Pro, Llama 3</strong> đều kế thừa trực tiếp từ khối Transformer Decoder.</p>
-      <ul style="padding-left: 20px; display: flex; flex-direction: column; gap: 8px;">
-        <li><strong>Khả năng In-Context Learning:</strong> LLM hiểu ngữ cảnh lập tức chỉ qua vài dòng prompt mà không cần fine-tune lại trọng số.</li>
-        <li><strong>Multi-Agent Systems:</strong> Cơ sở để triển khai nhiều Agent giao tiếp tự động, phản biện và hợp tác giải quyết bài toán phức tạp.</li>
-      </ul>
-      <div style="margin-top: 20px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); padding: 12px 16px; border-radius: 10px; display: flex; align-items: center; justify-content: space-between;">
-        <span style="font-size: 13px; color: #e0e7ff;">💡 Bạn đã sẵn sàng thảo luận và ôn tập với 3 AI Agents chưa?</span>
-      </div>
-    `,
-  },
-];
+import type { LectureDay } from "./lecture-data";
 
 export const initialConversation: Message[] = [
   {
@@ -189,4 +106,85 @@ export const mindmapLeaves: MindmapLeaf[] = [
     tag: "Song song hóa",
     detail: "Nhánh Multi-Head: Cho phép mô hình đồng thời chú ý tới nhiều khía cạnh ngữ pháp & ngữ nghĩa khác nhau",
   },
+];
+
+/* Checkpoint tương tác gắn thủ công theo trang slide — key là id buổi học (day1/day2). */
+export const checkpointsByDay: Record<LectureDay["id"], Checkpoint[]> = {
+  day1: [
+    {
+      id: 1,
+      pageIndex: 4,
+      question: "Trước khi qua tiếp: LLM sinh ra câu trả lời dựa trên cơ chế nào?",
+      options: [
+        { key: "A", text: "Dự đoán xác suất token tiếp theo dựa trên ngữ cảnh", isCorrect: true },
+        { key: "B", text: "Tra cứu trực tiếp trong một cơ sở dữ liệu có sẵn", isCorrect: false },
+        { key: "C", text: "Chạy các luật if-else được lập trình cứng", isCorrect: false },
+      ],
+    },
+    {
+      id: 2,
+      pageIndex: 9,
+      question: "Vì sao AI có thể trả lời khác nhau ở 2 lần chạy cùng một câu hỏi?",
+      options: [
+        { key: "A", text: "Vì mô hình bị lỗi", isCorrect: false },
+        { key: "B", text: "Vì bản chất AI sinh ra theo xác suất, không phải kết quả cố định", isCorrect: true },
+        { key: "C", text: "Vì mạng internet không ổn định", isCorrect: false },
+      ],
+    },
+  ],
+  day2: [
+    {
+      id: 3,
+      pageIndex: 4,
+      question: "Bước đầu tiên khi nhận một đề bài AI mơ hồ từ sếp/stakeholder là gì?",
+      options: [
+        { key: "A", text: "Bắt tay build giải pháp ngay để kịp tiến độ", isCorrect: false },
+        { key: "B", text: "Đào sâu tìm vấn đề/pain point thực sự phía sau đề bài", isCorrect: true },
+        { key: "C", text: "Chọn công nghệ AI mới nhất đang hot", isCorrect: false },
+      ],
+    },
+    {
+      id: 4,
+      pageIndex: 9,
+      question: "Theo mô hình Double Diamond, 'do the wrong thing right' nguy hiểm ở điểm nào?",
+      options: [
+        { key: "A", text: "Tốn ít thời gian hơn dự kiến", isCorrect: false },
+        { key: "B", text: "Làm rất tốt nhưng sai vấn đề ngay từ đầu, không học được gì hữu ích", isCorrect: true },
+        { key: "C", text: "Không liên quan gì đến rủi ro dự án", isCorrect: false },
+      ],
+    },
+  ],
+};
+
+export const agentProfiles: Record<"teacher" | "student" | "generator", AgentProfile> = {
+  teacher: {
+    key: "teacher",
+    name: "TS. Minh",
+    tagline: "Giảng viên AI — giải thích bản chất, không chỉ đọc công thức",
+    bio: "TS. Minh chuyên phân tích sâu các khái niệm nền tảng của Transformer & LLM, luôn đối chiếu công thức toán học với trực giác thực tế để bạn hiểu tận gốc thay vì học vẹt.",
+    quote: "Hiểu đúng bản chất một lần, nhớ được cả đời — học vẹt thì quên sau một tuần.",
+  },
+  student: {
+    key: "student",
+    name: "Bảo Nam",
+    tagline: "Bạn học ảo — luyện Active Recall cùng bạn",
+    bio: "Bảo Nam đóng vai một bạn học tò mò, liên tục đặt câu hỏi ngược lại để bạn phải tự diễn giải kiến thức bằng lời của mình (kỹ thuật Feynman) — cách ghi nhớ hiệu quả nhất.",
+    quote: "Cậu thử giải thích lại cho tớ nghe xem, tớ đảm bảo cậu sẽ nhớ lâu hơn nhiều!",
+  },
+  generator: {
+    key: "generator",
+    name: "Nexus Bot",
+    tagline: "Trợ lý sinh tài liệu ôn tập tức thì",
+    bio: "Nexus Bot lắng nghe cuộc trò chuyện và tự động tạo Quiz, Flashcard, Mindmap bám sát đúng nội dung đang thảo luận, giúp bạn củng cố kiến thức ngay lập tức.",
+    quote: "Yêu cầu gì cứ nói — quiz, flashcard hay mindmap, mình tạo ngay cho bạn!",
+  },
+};
+
+export const chatHistorySessions: ChatHistorySession[] = [
+  { date: "Hôm nay, 10:15", agent: "teacher", topic: "Tại sao cần căn bậc 2 dk?" },
+  { date: "Hôm nay, 10:16", agent: "student", topic: "Phân biệt Query, Key, Value" },
+  { date: "Hôm nay, 10:20", agent: "generator", topic: "Multi-head Attention lợi ích gì?" },
+  { date: "Hôm qua", agent: "teacher", topic: "Vì sao Transformer thay thế được RNN?" },
+  { date: "Hôm qua", agent: "student", topic: "Thử thách: giải thích lại Scaled Dot-Product" },
+  { date: "3 ngày trước", agent: "generator", topic: "Tạo flashcard ôn tập chương 1" },
 ];

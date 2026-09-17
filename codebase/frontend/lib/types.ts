@@ -2,19 +2,6 @@ export type AgentKey = "teacher" | "student" | "generator";
 export type SenderType = AgentKey | "user";
 export type AgentFilter = "all" | AgentKey;
 
-export interface Slide {
-  tag: string;
-  title: string;
-  body: string;
-}
-
-export interface Lesson {
-  number: number;
-  name: string;
-  status: string;
-  slideCount: number;
-}
-
 export interface Message {
   id: number;
   senderType: SenderType;
@@ -52,4 +39,37 @@ export interface MindmapLeaf {
   label: string;
   tag: string;
   detail: string;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Checkpoint: quiz gắn tại 1 trang slide PDF cụ thể                     */
+/* ---------------------------------------------------------------------- */
+
+export interface Checkpoint {
+  id: number;
+  pageIndex: number;
+  question: string;
+  options: QuizOption[];
+}
+
+/* ---------------------------------------------------------------------- */
+/* Agent profile popup                                                    */
+/* ---------------------------------------------------------------------- */
+
+export interface AgentProfile {
+  key: AgentKey;
+  name: string;
+  tagline: string;
+  bio: string;
+  quote: string;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Agent chat history drawer                                              */
+/* ---------------------------------------------------------------------- */
+
+export interface ChatHistorySession {
+  date: string;
+  agent: AgentKey;
+  topic: string;
 }

@@ -46,11 +46,11 @@ export function FlashcardPanel() {
             <div className="fc-flip-hint">👆 Bấm vào đây để xem định nghĩa & công thức</div>
           </div>
           <div className="flashcard-face flashcard-back">
-            <div className="fc-tag" style={{ color: "#6ee7b7" }}>
+            <div className="fc-tag" style={{ color: "var(--student-color)" }}>
               Định nghĩa & Bản chất
             </div>
             <div className="fc-back-definition" dangerouslySetInnerHTML={{ __html: card.def }} />
-            <div className="fc-flip-hint" style={{ color: "#a7f3d0" }}>
+            <div className="fc-flip-hint" style={{ color: "var(--student-color)" }}>
               👆 Bấm để lật lại mặt trước
             </div>
           </div>
@@ -63,7 +63,7 @@ export function FlashcardPanel() {
         </button>
         <button
           className="fc-btn-arrow"
-          style={{ background: "rgba(16, 185, 129, 0.2)", color: "#34d399", borderColor: "#10b981" }}
+          style={{ background: "var(--student-light)", color: "var(--student-color)", borderColor: "var(--student-color)" }}
           onClick={markLearned}
         >
           ✓ Đã thuộc

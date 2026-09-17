@@ -8,7 +8,9 @@ import { AgentSidebar } from "./AgentSidebar";
 import { ChatStream } from "./ChatStream";
 import { ChatComposer } from "./ChatComposer";
 import { ArtifactsSidebar } from "./ArtifactsSidebar";
-import type { AgentFilter, ArtifactFilter } from "@/lib/types";
+import { AgentProfileModal } from "./AgentProfileModal";
+import { ChatHistoryDrawer } from "./ChatHistoryDrawer";
+import type { AgentFilter, AgentKey, ArtifactFilter } from "@/lib/types";
 
 const modeTabs: { key: AgentFilter; label: string }[] = [
   { key: "all", label: "Thảo luận chung (Round-table)" },
@@ -21,6 +23,8 @@ export function ClassroomView() {
   const [docCount, setDocCount] = useState(3);
   const [highlighted, setHighlighted] = useState(false);
   const [artifactFilter, setArtifactFilter] = useState<ArtifactFilter>("all");
+  const [openProfile, setOpenProfile] = useState<AgentKey | null>(null);
+  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const { showToast } = useToast();
 
   const { messages, agentFilter, setAgentFilter, typingLabel, sendMessage, resetConversation } =
@@ -70,7 +74,7 @@ export function ClassroomView() {
 
         <button
           className="back-to-lesson-btn"
-          style={{ color: "#f59e0b", borderColor: "rgba(245, 158, 11, 0.3)" }}
+          style={{ color: "var(--generator-color)", borderColor: "var(--generator-border)" }}
           onClick={handleReset}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -83,7 +87,12 @@ export function ClassroomView() {
       </div>
 
       <div className="classroom-grid">
-        <AgentSidebar agentFilter={agentFilter} onSelect={setAgentFilter} />
+        <AgentSidebar
+          agentFilter={agentFilter}
+          onSelect={setAgentFilter}
+          onOpenProfile={setOpenProfile}
+          onOpenHistory={() => setHistoryDrawerOpen(true)}
+        />
 
         <section className="col-chat-main">
           <ChatStream
@@ -101,6 +110,9 @@ export function ClassroomView() {
           highlighted={highlighted}
         />
       </div>
+
+      {openProfile && <AgentProfileModal agentKey={openProfile} onClose={() => setOpenProfile(null)} />}
+      {historyDrawerOpen && <ChatHistoryDrawer onClose={() => setHistoryDrawerOpen(false)} />}
     </main>
   );
 }

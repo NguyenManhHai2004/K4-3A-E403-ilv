@@ -55,7 +55,7 @@ export function ChatStream({ messages, typingLabel, onPreviewArtifacts }: ChatSt
 
                   {msg.hasArtifactNotice && (
                     <div className="artifact-notification-card">
-                      <span style={{ fontSize: 12, color: "#f59e0b" }}>
+                      <span style={{ fontSize: 12, color: "var(--generator-color)" }}>
                         ✨ Đã tự động tạo: Quiz & Flashcard về Attention
                       </span>
                       <button

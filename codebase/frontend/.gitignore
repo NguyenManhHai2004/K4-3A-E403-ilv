@@ -23,3 +23,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# VLearn data pack — hackathon-only, không được commit nguyên file
+# (bản gốc ở ../vlearn-pack/, xem README.md trong đó — rule ở đây chỉ cho bản copy phục vụ Next.js)
+/public/vlearn-pack/
