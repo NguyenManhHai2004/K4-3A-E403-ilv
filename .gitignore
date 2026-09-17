@@ -1,3 +1,13 @@
+
 # VLearn data pack — hackathon-only, không được commit nguyên file lên repo nộp bài
 # (xem codebase/vlearn-pack/README.md, mục "Luật dùng & bảo mật")
 /codebase/vlearn-pack/
+.venv/
+.env
+.env.*
+__pycache__/
+*.pyc
+.DS_Store
+data/
+tasks/
+
