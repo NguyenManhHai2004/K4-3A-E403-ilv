@@ -343,9 +343,6 @@ export function ClassroomView({
               <span>
                 {sessionMeta.currentSlideTitle || "Đang tải ngữ cảnh slide..."}
               </span>
-              <span>
-                Dùng chuột hoặc phím mũi tên trái/phải để chuyển slide
-              </span>
             </div>
           </div>
 

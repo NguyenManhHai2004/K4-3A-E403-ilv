@@ -20,7 +20,7 @@ const avatarClass: Record<AgentKey, string> = {
 
 const roleLabel: Record<AgentKey, string> = {
   teacher: "Giảng viên",
-  student: "Bạn học (Active Recall)",
+  student: "Bạn học",
   generator: "Sinh tài liệu",
 };
 

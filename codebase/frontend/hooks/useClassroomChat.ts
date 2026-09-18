@@ -25,7 +25,7 @@ const agentMeta: Record<
   },
   student: {
     senderName: "Bảo Nam",
-    role: "Bạn học (Active Recall)",
+    role: "Bạn học",
     avatar: "🎒",
   },
   generator: {
