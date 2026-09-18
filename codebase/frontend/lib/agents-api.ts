@@ -1,5 +1,5 @@
 import { fallbackLectureDays, type LectureDay, type LectureTranscriptRef } from "./lecture-data";
-import type { ConversationHistorySummary, LectureDayId } from "./types";
+import type { ConversationHistorySummary, GeneratedMaterialRecord, LectureDayId } from "./types";
 
 interface ArtifactTranscriptPayload {
   id?: string;
@@ -138,6 +138,37 @@ export async function fetchConversationHistory(artifactId: LectureDayId): Promis
     return Array.isArray(payload.conversations) ? payload.conversations : [];
   } catch (error) {
     console.error("Unable to load conversation history from agents backend", error);
+    return [];
+  }
+}
+
+interface MaterialsListResponse {
+  materials?: GeneratedMaterialRecord[];
+}
+
+export async function fetchGeneratedMaterials(
+  artifactId: LectureDayId,
+  materialType?: string,
+): Promise<GeneratedMaterialRecord[]> {
+  try {
+    const isServer = typeof window === "undefined";
+    const baseUrl = isServer ? getServerApiBaseUrl() : getBrowserApiBaseUrl();
+    const url = new URL(buildAbsoluteUrl(baseUrl, `/api/artifacts/${artifactId}/materials`));
+    if (materialType && materialType !== "all") {
+      url.searchParams.set("type", materialType);
+    }
+    const response = await fetch(url.toString(), {
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new Error(`Agents API returned ${response.status}`);
+    }
+
+    const payload = (await response.json()) as MaterialsListResponse;
+    return Array.isArray(payload.materials) ? payload.materials : [];
+  } catch (error) {
+    console.error("Unable to load generated materials from agents backend", error);
     return [];
   }
 }

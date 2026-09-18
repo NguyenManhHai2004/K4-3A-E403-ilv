@@ -107,6 +107,25 @@ export interface MindmapArtifact extends GeneratedArtifactBase {
 
 export type GeneratedArtifact = QuizArtifact | FlashcardArtifact | MindmapArtifact;
 
+export type GeneratedMaterialType = "quiz" | "flashcard" | "mindmap";
+
+export interface GeneratedMaterialRecord {
+  id: string;
+  artifact_id: string;
+  session_id?: string;
+  material_type: GeneratedMaterialType;
+  title: string;
+  content_format: "json" | "xml";
+  content: QuizArtifactContent | FlashcardArtifactContent | MindmapArtifactContent | Record<string, unknown>;
+  item_count: number;
+  citations: string[];
+  covered_until?: string;
+  slide_number?: number;
+  slide_title?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ArtifactStore {
   quiz: QuizArtifact | null;
   flashcard: FlashcardArtifact | null;

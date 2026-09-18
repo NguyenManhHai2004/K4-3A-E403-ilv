@@ -672,16 +672,24 @@ html, body {
   color: var(--teacher-color);
 }
 
-/* 3-Column Layout */
+/* 2-Column Layout (Stage + Resizable Chat Sidebar) */
 .classroom-grid {
   flex: 1;
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 400px;
+  display: flex;
+  flex-direction: row;
   overflow: hidden;
   background: var(--bg-main);
+  position: relative;
+}
+
+.classroom-grid.is-resizing {
+  user-select: none;
+  cursor: col-resize;
 }
 
 .classroom-stage-panel {
+  flex: 1;
+  min-width: 0;
   background: var(--bg-surface);
   display: flex;
   flex-direction: column;
@@ -691,7 +699,23 @@ html, body {
 }
 
 .classroom-stage-main {
-  border-inline: 1px solid var(--border-subtle);
+  border-right: none;
+}
+
+.classroom-resize-handle {
+  width: 6px;
+  background: var(--border-subtle);
+  cursor: col-resize;
+  position: relative;
+  z-index: 20;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease;
+}
+
+.classroom-resize-handle:hover,
+.classroom-resize-handle.active,
+.classroom-grid.is-resizing .classroom-resize-handle {
+  background: var(--primary, #134d8b);
 }
 
 .classroom-stage-head {
@@ -2209,10 +2233,6 @@ html, body {
 
 /* Responsive adjustments */
 @media (max-width: 1100px) {
-  .classroom-grid {
-    grid-template-columns: 280px minmax(0, 1fr) 340px;
-  }
-
   .classroom-stage-head {
     align-items: flex-start;
     flex-direction: column;
@@ -2226,14 +2246,17 @@ html, body {
 
 @media (max-width: 920px) {
   .classroom-grid {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(340px, auto) minmax(420px, 1fr);
+    flex-direction: column;
+    overflow-y: auto;
   }
 
-  .classroom-left-sidebar {
-    border-right: none;
-    border-bottom: 1px solid var(--border-subtle);
-    max-height: 48vh;
+  .classroom-resize-handle {
+    display: none;
+  }
+
+  .classroom-chat-sidebar {
+    width: 100% !important;
+    min-height: 480px;
   }
 
   .classroom-stage-main {

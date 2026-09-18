@@ -6,20 +6,18 @@ import { useRouter } from "next/navigation";
 import { useClassroomChat } from "@/hooks/useClassroomChat";
 import { useToast } from "@/components/ui/ToastProvider";
 import { findLectureDay, type LectureDay } from "@/lib/lecture-data";
-import { AgentSidebar } from "./AgentSidebar";
-import { ArtifactsSidebar } from "./ArtifactsSidebar";
 import { ChatComposer } from "./ChatComposer";
 import { ChatHistoryDrawer } from "./ChatHistoryDrawer";
 import { ChatStream } from "./ChatStream";
 import { LearningViewer } from "./LearningViewer";
 import { AgentProfileModal } from "./AgentProfileModal";
-import type { AgentFilter, AgentKey, ArtifactFilter, LectureDayId } from "@/lib/types";
+import type { AgentFilter, AgentKey, LectureDayId } from "@/lib/types";
 
-const modeTabs: { key: AgentFilter; label: string }[] = [
+const modeTabs: { key: AgentFilter; label: string; agentKey?: AgentKey }[] = [
   { key: "all", label: "Thảo luận chung" },
-  { key: "teacher", label: "👨‍🏫 Giảng viên" },
-  { key: "student", label: "🎒 Bạn học" },
-  { key: "generator", label: "⚡ Material Bot" },
+  // { key: "teacher", label: "👨‍🏫 Giảng viên", agentKey: "teacher" },
+  // { key: "student", label: "🎒 Bạn học", agentKey: "student" },
+  { key: "generator", label: "⚡ Material Bot", agentKey: "generator" },
 ];
 
 function parseInitialSlide(raw: number | string | null): number {
@@ -31,7 +29,12 @@ function parseInitialSlide(raw: number | string | null): number {
 function isTypingTarget(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null;
   const tagName = element?.tagName?.toLowerCase();
-  return Boolean(element?.isContentEditable) || tagName === "input" || tagName === "textarea" || tagName === "select";
+  return (
+    Boolean(element?.isContentEditable) ||
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select"
+  );
 }
 
 interface ClassroomViewProps {
@@ -40,23 +43,34 @@ interface ClassroomViewProps {
   initialSlide: number;
 }
 
-export function ClassroomView({ days, initialDayId, initialSlide }: ClassroomViewProps) {
+const DEFAULT_CHAT_WIDTH = 420;
+const MIN_CHAT_WIDTH = 280;
+
+export function ClassroomView({
+  days,
+  initialDayId,
+  initialSlide,
+}: ClassroomViewProps) {
   const router = useRouter();
   const initialDay = findLectureDay(days, initialDayId);
   const resolvedInitialSlide = parseInitialSlide(initialSlide);
 
-  const [sessionSeed, setSessionSeed] = useState<{ dayId: LectureDayId; slide: number }>({
+  const [sessionSeed, setSessionSeed] = useState<{
+    dayId: LectureDayId;
+    slide: number;
+  }>({
     dayId: initialDay.id,
     slide: resolvedInitialSlide,
   });
   const [dayId, setDayId] = useState<LectureDayId>(initialDay.id);
   const [pageIndex, setPageIndex] = useState(resolvedInitialSlide - 1);
   const [pageCount, setPageCount] = useState(1);
-  const [artifactFilter, setArtifactFilter] = useState<ArtifactFilter>("all");
-  const [agentsExpanded, setAgentsExpanded] = useState(true);
-  const [artifactsExpanded, setArtifactsExpanded] = useState(true);
   const [openProfile, setOpenProfile] = useState<AgentKey | null>(null);
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
+  const [chatWidth, setChatWidth] = useState<number>(DEFAULT_CHAT_WIDTH);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const gridRef = useRef<HTMLDivElement>(null);
   const keyboardSlideChangeRef = useRef<(delta: number) => void>(() => {});
   const { showToast } = useToast();
 
@@ -64,8 +78,6 @@ export function ClassroomView({ days, initialDayId, initialSlide }: ClassroomVie
     messages,
     agentFilter,
     typingLabel,
-    artifacts,
-    historyTopics,
     pendingPrompt,
     sessionMeta,
     errorMessage,
@@ -76,16 +88,59 @@ export function ClassroomView({ days, initialDayId, initialSlide }: ClassroomVie
     changeAgentFilter,
     resetConversation,
   } = useClassroomChat(() => {
-    setArtifactsExpanded(true);
-    setArtifactFilter("all");
-    showToast("⚡ Artifacts mới đã được tạo từ slide thật!");
+    showToast("⚡ Học liệu mới đã được tạo từ slide thật!");
   });
 
   const day = findLectureDay(days, dayId);
-  const availableArtifactKeys: ArtifactFilter[] = [];
-  if (artifacts.quiz) availableArtifactKeys.push("quiz");
-  if (artifacts.flashcard) availableArtifactKeys.push("cards");
-  if (artifacts.mindmap) availableArtifactKeys.push("mindmap");
+
+  // Load chat width from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("classroom_chat_width");
+      if (saved) {
+        const val = parseInt(saved, 10);
+        if (!isNaN(val) && val >= MIN_CHAT_WIDTH && val <= 1000) {
+          setChatWidth(val);
+        }
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, []);
+
+  // Handle resizing drag events
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!gridRef.current) return;
+      const gridRect = gridRef.current.getBoundingClientRect();
+      const newWidth = gridRect.right - e.clientX;
+      const maxWidth = Math.max(MIN_CHAT_WIDTH, gridRect.width - 320);
+      const clampedWidth = Math.min(
+        Math.max(newWidth, MIN_CHAT_WIDTH),
+        maxWidth,
+      );
+      setChatWidth(clampedWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      try {
+        localStorage.setItem("classroom_chat_width", String(chatWidth));
+      } catch {
+        // Ignore storage errors
+      }
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizing, chatWidth]);
 
   useEffect(() => {
     void bootstrapSession(sessionSeed.dayId, sessionSeed.slide, "all");
@@ -99,7 +154,9 @@ export function ClassroomView({ days, initialDayId, initialSlide }: ClassroomVie
   }, [pageCount, pageIndex]);
 
   useEffect(() => {
-    router.replace(`/classroom?day=${dayId}&slide=${pageIndex + 1}`, { scroll: false });
+    router.replace(`/classroom?day=${dayId}&slide=${pageIndex + 1}`, {
+      scroll: false,
+    });
   }, [dayId, pageIndex, router]);
 
   function handleSelectDay(nextDayId: LectureDayId) {
@@ -108,7 +165,6 @@ export function ClassroomView({ days, initialDayId, initialSlide }: ClassroomVie
     setDayId(nextDayId);
     setPageIndex(0);
     setPageCount(1);
-    setArtifactFilter("all");
     setSessionSeed({ dayId: nextDay.id, slide: 1 });
   }
 
@@ -151,27 +207,54 @@ export function ClassroomView({ days, initialDayId, initialSlide }: ClassroomVie
 
   async function handleReset() {
     await resetConversation(dayId, pageIndex + 1);
-    setArtifactFilter("all");
     showToast("Đã khởi tạo lại classroom cho slide hiện tại.");
   }
 
   return (
     <main className="view-container classroom-view active-view">
       <div className="classroom-top-bar">
-        <Link href={`/?day=${dayId}&slide=${pageIndex + 1}`} className="back-to-lesson-btn">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/?day=${dayId}&slide=${pageIndex + 1}`}
+            className="back-to-lesson-btn"
           >
-            <line x1="19" y1="12" x2="5" y2="12"></line>
-            <polyline points="12 19 5 12 12 5"></polyline>
-          </svg>
-          Quay lại bài giảng
-        </Link>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+            Quay lại bài giảng
+          </Link>
+
+          <Link
+            href={`/materials?day=${dayId}&slide=${pageIndex + 1}`}
+            className="back-to-lesson-btn"
+            style={{
+              color: "var(--generator-color)",
+              borderColor: "var(--generator-border)",
+            }}
+            title="Mở trang kho học liệu ôn tập đã gen"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+            </svg>
+            Kho học liệu
+          </Link>
+        </div>
 
         <div className="classroom-status-group">
           <div className="classroom-mode-select">
@@ -187,88 +270,56 @@ export function ClassroomView({ days, initialDayId, initialSlide }: ClassroomVie
           </div>
         </div>
 
-        <button
-          className="back-to-lesson-btn"
-          style={{
-            color: "var(--generator-color)",
-            borderColor: "var(--generator-border)",
-          }}
-          onClick={() => void handleReset()}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
+        <div className="flex items-center gap-2">
+          <button
+            className="back-to-lesson-btn"
+            onClick={() => setHistoryDrawerOpen(true)}
+            title="Xem lịch sử trao đổi"
           >
-            <polyline points="1 4 1 10 7 10"></polyline>
-            <polyline points="23 20 23 14 17 14"></polyline>
-            <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path>
-          </svg>
-          Khởi tạo lại classroom
-        </button>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            Lịch sử
+          </button>
+
+          <button
+            className="back-to-lesson-btn"
+            style={{
+              color: "var(--text-secondary)",
+              borderColor: "var(--border-subtle)",
+            }}
+            onClick={() => void handleReset()}
+            title="Khởi tạo lại phiên trao đổi cho slide này"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <polyline points="1 4 1 10 7 10"></polyline>
+              <polyline points="23 20 23 14 17 14"></polyline>
+              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path>
+            </svg>
+            Khởi tạo lại
+          </button>
+        </div>
       </div>
 
-      <div className="classroom-grid">
-        <aside className="classroom-left-sidebar">
-          <div className="sidebar-section-card">
-            <button
-              className={`sidebar-section-toggle${agentsExpanded ? " open" : ""}`}
-              onClick={() => setAgentsExpanded((value) => !value)}
-              aria-expanded={agentsExpanded}
-            >
-              <span className="sidebar-section-toggle-copy">
-                <span className="sidebar-section-title">Danh sách AI Agents</span>
-                <span className="sidebar-section-subtitle">Chọn nhanh tác tử và xem chủ đề thảo luận gần đây</span>
-              </span>
-              <span className="sidebar-section-chevron">{agentsExpanded ? "▾" : "▸"}</span>
-            </button>
-            {agentsExpanded && (
-              <AgentSidebar
-                agentFilter={agentFilter}
-                historyTopics={historyTopics}
-                onSelect={(filter) => void handleModeChange(filter)}
-                onOpenProfile={(agent) => setOpenProfile(agent)}
-                onOpenHistory={() => setHistoryDrawerOpen(true)}
-              />
-            )}
-          </div>
-
-          <div className="sidebar-section-card">
-            <button
-              className={`sidebar-section-toggle${artifactsExpanded ? " open" : ""}`}
-              onClick={() => setArtifactsExpanded((value) => !value)}
-              aria-expanded={artifactsExpanded}
-            >
-              <span className="sidebar-section-toggle-copy">
-                <span className="sidebar-section-title">Kho Artifacts đã gen</span>
-                <span className="sidebar-section-subtitle">Các tài liệu ôn tập được sinh từ nội dung slide thật</span>
-              </span>
-              <span className="sidebar-section-toggle-meta">
-                <span
-                  className="artifact-count-tag"
-                  style={availableArtifactKeys.length > 0 ? { background: "var(--student-color)", color: "#fff" } : undefined}
-                >
-                  {availableArtifactKeys.length}
-                </span>
-                <span className="sidebar-section-chevron">{artifactsExpanded ? "▾" : "▸"}</span>
-              </span>
-            </button>
-            {artifactsExpanded && (
-              <ArtifactsSidebar
-                artifacts={artifacts}
-                filter={artifactFilter}
-                onFilterChange={setArtifactFilter}
-                docCount={availableArtifactKeys.length}
-                highlighted={availableArtifactKeys.length > 0}
-                showTitleRow={false}
-              />
-            )}
-          </div>
-        </aside>
-
+      <div
+        className={`classroom-grid ${isResizing ? "is-resizing" : ""}`}
+        ref={gridRef}
+      >
         <section className="classroom-stage-panel classroom-stage-main">
           <div className="lecture-day-tabs">
             {days.map((lectureDay) => (
@@ -289,8 +340,12 @@ export function ClassroomView({ days, initialDayId, initialSlide }: ClassroomVie
             </div>
             <div className="classroom-stage-meta">
               <span>Slide {pageIndex + 1}</span>
-              <span>{sessionMeta.currentSlideTitle || "Đang tải ngữ cảnh slide..."}</span>
-              <span>Dùng chuột hoặc phím mũi tên trái/phải để chuyển slide</span>
+              <span>
+                {sessionMeta.currentSlideTitle || "Đang tải ngữ cảnh slide..."}
+              </span>
+              <span>
+                Dùng chuột hoặc phím mũi tên trái/phải để chuyển slide
+              </span>
             </div>
           </div>
 
@@ -301,40 +356,72 @@ export function ClassroomView({ days, initialDayId, initialSlide }: ClassroomVie
             pageIndex={pageIndex}
             pageCount={pageCount}
             onPageCount={setPageCount}
-            onPageChange={(nextPageIndex) => void handleSlideChange(nextPageIndex)}
+            onPageChange={(nextPageIndex) =>
+              void handleSlideChange(nextPageIndex)
+            }
           />
         </section>
 
-        <aside className="col-chat-main classroom-chat-sidebar border-l border-border-subtle bg-bg-surface flex flex-col h-full">
-          <div className="classroom-chat-meta">
-            <div className="classroom-chat-title">Trao đổi theo slide hiện tại</div>
-            <div className="classroom-chat-subtitle">
-              {pendingPrompt
-                ? "Đang chờ bạn phản hồi cho câu hỏi gần nhất của agent."
-                : "Đổi slide hoặc chọn mode để agent chủ động bắt đầu tương tác."}
+        {/* Resizer Handle */}
+        <div
+          className={`classroom-resize-handle ${isResizing ? "active" : ""}`}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setIsResizing(true);
+          }}
+          title="Kéo sang trái hoặc phải để chỉnh độ rộng khung chat"
+        />
+
+        {/* Resizable Chat Sidebar */}
+        <aside
+          className="col-chat-main classroom-chat-sidebar border-l border-border-subtle bg-bg-surface flex flex-col h-full"
+          style={{ width: `${chatWidth}px`, flexShrink: 0 }}
+        >
+          <div className="classroom-chat-meta flex items-center justify-between">
+            <div className="min-w-0 pr-2">
+              <div className="classroom-chat-title">
+                Trao đổi theo slide hiện tại
+              </div>
+              <div className="classroom-chat-subtitle truncate">
+                {pendingPrompt
+                  ? "Đang chờ bạn phản hồi cho câu hỏi gần nhất của agent."
+                  : "Đổi slide hoặc chọn mode để agent chủ động bắt đầu tương tác."}
+              </div>
             </div>
           </div>
 
-          {errorMessage && <div className="classroom-error-banner">{errorMessage}</div>}
+          {errorMessage && (
+            <div className="classroom-error-banner">{errorMessage}</div>
+          )}
 
           <ChatStream
             messages={messages}
             typingLabel={typingLabel}
-            onPreviewArtifacts={() => {
-              setArtifactsExpanded(true);
-              setArtifactFilter("all");
-            }}
+            dayId={dayId}
+            currentSlide={pageIndex + 1}
           />
           <ChatComposer
             defaultTarget={agentFilter}
-            onSend={(text, target) => void sendMessage(text, target, pageIndex + 1)}
+            onSend={(text, target) =>
+              void sendMessage(text, target, pageIndex + 1)
+            }
           />
           {isBusy && !typingLabel && <div className="classroom-loading-bar" />}
         </aside>
       </div>
 
-      {openProfile && <AgentProfileModal agentKey={openProfile} onClose={() => setOpenProfile(null)} />}
-      {historyDrawerOpen && <ChatHistoryDrawer artifactId={dayId} onClose={() => setHistoryDrawerOpen(false)} />}
+      {openProfile && (
+        <AgentProfileModal
+          agentKey={openProfile}
+          onClose={() => setOpenProfile(null)}
+        />
+      )}
+      {historyDrawerOpen && (
+        <ChatHistoryDrawer
+          artifactId={dayId}
+          onClose={() => setHistoryDrawerOpen(false)}
+        />
+      )}
     </main>
   );
 }

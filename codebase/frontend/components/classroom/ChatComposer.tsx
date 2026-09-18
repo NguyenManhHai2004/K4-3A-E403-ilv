@@ -8,7 +8,13 @@ interface ChatComposerProps {
   onSend: (text: string, target: AgentFilter) => void;
 }
 
-const quickPrompts: { type: string; className: string; label: string; text: string; target: AgentFilter }[] = [
+const quickPrompts: {
+  type: string;
+  className: string;
+  label: string;
+  text: string;
+  target: AgentFilter;
+}[] = [
   {
     type: "answer_dk",
     className: "student-chip",
@@ -39,7 +45,10 @@ const quickPrompts: { type: string; className: string; label: string; text: stri
   },
 ];
 
-export function ChatComposer({ defaultTarget = "all", onSend }: ChatComposerProps) {
+export function ChatComposer({
+  defaultTarget = "all",
+  onSend,
+}: ChatComposerProps) {
   const [text, setText] = useState("");
   const [target, setTarget] = useState<AgentFilter>(defaultTarget);
 
@@ -72,7 +81,7 @@ export function ChatComposer({ defaultTarget = "all", onSend }: ChatComposerProp
       </div>
 
       <div className="input-compose-box">
-        <select
+        {/* <select
           className="target-agent-select"
           value={target}
           onChange={(e) => setTarget(e.target.value as AgentFilter)}
@@ -81,7 +90,7 @@ export function ChatComposer({ defaultTarget = "all", onSend }: ChatComposerProp
           <option value="teacher">@TS. Minh (Giảng viên)</option>
           <option value="student">@Bảo Nam (Bạn học)</option>
           <option value="generator">@Nexus (Tạo tài liệu)</option>
-        </select>
+        </select> */}
 
         <input
           type="text"
@@ -94,8 +103,19 @@ export function ChatComposer({ defaultTarget = "all", onSend }: ChatComposerProp
           }}
         />
 
-        <button className="btn-send-message" onClick={submit} title="Gửi tin nhắn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+        <button
+          className="btn-send-message"
+          onClick={submit}
+          title="Gửi tin nhắn"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
             <line x1="22" y1="2" x2="11" y2="13"></line>
             <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
           </svg>

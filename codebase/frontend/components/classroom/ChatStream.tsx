@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import Link from "next/link";
 import type { Message } from "@/lib/types";
 import { useToast } from "@/components/ui/ToastProvider";
 
 interface ChatStreamProps {
   messages: Message[];
   typingLabel: string | null;
-  onPreviewArtifacts: () => void;
+  onPreviewArtifacts?: () => void;
+  dayId?: string;
+  currentSlide?: number;
 }
 
 function roleBadgeClass(senderType: Message["senderType"]): string {
@@ -16,7 +19,12 @@ function roleBadgeClass(senderType: Message["senderType"]): string {
   return "role-teacher";
 }
 
-export function ChatStream({ messages, typingLabel, onPreviewArtifacts }: ChatStreamProps) {
+export function ChatStream({
+  messages,
+  typingLabel,
+  dayId = "day1",
+  currentSlide = 1,
+}: ChatStreamProps) {
   const streamRef = useRef<HTMLDivElement>(null);
   const { showToast } = useToast();
 
@@ -66,17 +74,17 @@ export function ChatStream({ messages, typingLabel, onPreviewArtifacts }: ChatSt
                   {msg.hasArtifactNotice && (
                     <div className="artifact-notification-card">
                       <span style={{ fontSize: 12, color: "var(--generator-color)" }}>
-                        ✨ Đã tự động tạo: Quiz & Flashcard về Attention
+                        ✨ Đã tự động tạo học liệu ôn tập cho bài giảng
                       </span>
-                      <button
+                      <Link
+                        href={`/materials?day=${dayId}&slide=${currentSlide}`}
                         className="artifact-btn-preview"
                         onClick={() => {
-                          onPreviewArtifacts();
-                          showToast("Đang mở Kho Artifacts...");
+                          showToast("Đang mở trang Kho học liệu...");
                         }}
                       >
                         Xem ngay ➔
-                      </button>
+                      </Link>
                     </div>
                   )}
                 </div>
