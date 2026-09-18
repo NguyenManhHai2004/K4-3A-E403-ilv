@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useClassroomChat } from "@/hooks/useClassroomChat";
 import { useToast } from "@/components/ui/ToastProvider";
-import { findLectureDay, lectureDays } from "@/lib/lecture-data";
+import { findLectureDay, type LectureDay } from "@/lib/lecture-data";
 import { AgentSidebar } from "./AgentSidebar";
 import { ArtifactsSidebar } from "./ArtifactsSidebar";
 import { ChatComposer } from "./ChatComposer";
@@ -35,13 +35,14 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 interface ClassroomViewProps {
+  days: LectureDay[];
   initialDayId: LectureDayId;
   initialSlide: number;
 }
 
-export function ClassroomView({ initialDayId, initialSlide }: ClassroomViewProps) {
+export function ClassroomView({ days, initialDayId, initialSlide }: ClassroomViewProps) {
   const router = useRouter();
-  const initialDay = findLectureDay(initialDayId);
+  const initialDay = findLectureDay(days, initialDayId);
   const resolvedInitialSlide = parseInitialSlide(initialSlide);
 
   const [sessionSeed, setSessionSeed] = useState<{ dayId: LectureDayId; slide: number }>({
@@ -80,7 +81,7 @@ export function ClassroomView({ initialDayId, initialSlide }: ClassroomViewProps
     showToast("⚡ Artifacts mới đã được tạo từ slide thật!");
   });
 
-  const day = findLectureDay(dayId);
+  const day = findLectureDay(days, dayId);
   const availableArtifactKeys: ArtifactFilter[] = [];
   if (artifacts.quiz) availableArtifactKeys.push("quiz");
   if (artifacts.flashcard) availableArtifactKeys.push("cards");
@@ -102,11 +103,13 @@ export function ClassroomView({ initialDayId, initialSlide }: ClassroomViewProps
   }, [dayId, pageIndex, router]);
 
   function handleSelectDay(nextDayId: LectureDayId) {
+    const nextDay = days.find((candidate) => candidate.id === nextDayId);
+    if (!nextDay) return;
     setDayId(nextDayId);
     setPageIndex(0);
     setPageCount(1);
     setArtifactFilter("all");
-    setSessionSeed({ dayId: nextDayId, slide: 1 });
+    setSessionSeed({ dayId: nextDay.id, slide: 1 });
   }
 
   async function handleModeChange(nextFilter: AgentFilter) {
@@ -171,10 +174,6 @@ export function ClassroomView({ initialDayId, initialSlide }: ClassroomViewProps
         </Link>
 
         <div className="classroom-status-group">
-          <div className="live-badge">
-            <span className="live-dot" />
-            LLM thật + slide thật
-          </div>
           <div className="classroom-mode-select">
             {modeTabs.map((tab) => (
               <button
@@ -272,7 +271,7 @@ export function ClassroomView({ initialDayId, initialSlide }: ClassroomViewProps
 
         <section className="classroom-stage-panel classroom-stage-main">
           <div className="lecture-day-tabs">
-            {lectureDays.map((lectureDay) => (
+            {days.map((lectureDay) => (
               <button
                 key={lectureDay.id}
                 className={`lecture-day-tab${lectureDay.id === dayId ? " active" : ""}`}
@@ -334,13 +333,8 @@ export function ClassroomView({ initialDayId, initialSlide }: ClassroomViewProps
         </aside>
       </div>
 
-      {openProfile && (
-        <AgentProfileModal
-          agentKey={openProfile}
-          onClose={() => setOpenProfile(null)}
-        />
-      )}
-      {historyDrawerOpen && <ChatHistoryDrawer onClose={() => setHistoryDrawerOpen(false)} />}
+      {openProfile && <AgentProfileModal agentKey={openProfile} onClose={() => setOpenProfile(null)} />}
+      {historyDrawerOpen && <ChatHistoryDrawer artifactId={dayId} onClose={() => setHistoryDrawerOpen(false)} />}
     </main>
   );
 }

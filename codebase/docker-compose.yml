@@ -12,16 +12,16 @@ services:
       - PORT=3000
       - HOSTNAME=0.0.0.0
       - WATCHPACK_POLLING=true
+      - AGENTS_API_BASE_URL=http://agents:8000
+      - NEXT_PUBLIC_AGENTS_API_BASE_URL=http://localhost:8000
+      - NEXT_PUBLIC_AGENTS_WS_URL=ws://localhost:8000/ws/classroom
     env_file:
       - path: ./agents/.env
         required: false
     volumes:
-      # Mount code frontend để hot reload
       - ./frontend:/app/frontend
-      # Giữ nguyên node_modules và .next build cache trong container
       - /app/frontend/node_modules
       - /app/frontend/.next
-      # Mount agents vào đúng đường dẫn ../agents để Next.js route (/api/classroom, /api/slides) gọi được
       - ./agents:/app/agents
     depends_on:
       - agents
@@ -37,13 +37,32 @@ services:
     stdin_open: true
     tty: true
     init: true
+    ports:
+      - "8000:8000"
     env_file:
       - path: ./agents/.env
         required: false
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
+      - CLASSROOM_API_HOST=0.0.0.0
+      - CLASSROOM_API_PORT=8000
+      - CLASSROOM_MONGODB_URI=mongodb://mongo:27017
+      - CLASSROOM_MONGODB_DB=multi_agent_classroom
     volumes:
-      # Mount code agents để cập nhật ngay khi sửa code
       - ./agents:/app/codebase/agents
-    command: ["tail", "-f", "/dev/null"]
+    command: ["python", "classroom_gateway.py"]
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:7
+    container_name: classroom-mongo-dev
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  mongo_data:

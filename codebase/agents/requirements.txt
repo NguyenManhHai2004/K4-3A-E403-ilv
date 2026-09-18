@@ -8,3 +8,4 @@ PyYAML>=6.0
 requests>=2.31.0
 docling>=2.0
 python-pptx>=1.0
+pymongo>=4.9.0

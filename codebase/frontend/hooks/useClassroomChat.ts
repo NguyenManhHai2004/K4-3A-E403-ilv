@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentFilter,
   AgentKey,
@@ -11,6 +11,8 @@ import type {
   Message,
   PendingPrompt,
 } from "@/lib/types";
+
+const CLASSROOM_WS_URL = process.env.NEXT_PUBLIC_AGENTS_WS_URL ?? "ws://localhost:8000/ws/classroom";
 
 const agentMeta: Record<
   AgentKey,
@@ -31,6 +33,25 @@ const agentMeta: Record<
     role: "Sinh tài liệu",
     avatar: "⚡",
   },
+};
+
+interface ClassroomSocketSnapshotEnvelope {
+  kind: "snapshot";
+  request_id: string;
+  snapshot: ClassroomSessionSnapshot;
+}
+
+interface ClassroomSocketErrorEnvelope {
+  kind: "error";
+  request_id: string;
+  message: string;
+}
+
+type ClassroomSocketEnvelope = ClassroomSocketSnapshotEnvelope | ClassroomSocketErrorEnvelope;
+
+type PendingSocketRequest = {
+  resolve: (snapshot: ClassroomSessionSnapshot) => void;
+  reject: (error: Error) => void;
 };
 
 function emptyArtifacts(): ArtifactStore {
@@ -59,6 +80,13 @@ function currentTimeString(): string {
   return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 
+function nextRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function typingLabelForFilter(target: AgentFilter): string {
   if (target === "teacher") return "TS. Minh đang phân tích slide hiện tại...";
   if (target === "student") return "Bảo Nam đang chuẩn bị câu hỏi Active Recall...";
@@ -83,7 +111,8 @@ function eventToMessage(event: ClassroomAgentEvent, nextId: number): Message {
 }
 
 export function useClassroomChat(onArtifactCreated?: () => void) {
-  const sessionIdRef = useRef<string | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const pendingRequestsRef = useRef<Map<string, PendingSocketRequest>>(new Map());
   const messageIdRef = useRef(1);
   const [messages, setMessages] = useState<Message[]>([]);
   const [agentFilter, setAgentFilterState] = useState<AgentFilter>("all");
@@ -108,13 +137,27 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
     });
   }, [messages, agentFilter]);
 
+  function rejectPendingRequests(message: string) {
+    for (const [requestId, pending] of pendingRequestsRef.current.entries()) {
+      pending.reject(new Error(message));
+      pendingRequestsRef.current.delete(requestId);
+    }
+  }
+
+  function closeSocket() {
+    const socket = socketRef.current;
+    socketRef.current = null;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.close();
+    }
+  }
+
   function nextMessageId(): number {
     messageIdRef.current += 1;
     return Date.now() + messageIdRef.current;
   }
 
   function applySnapshot(snapshot: ClassroomSessionSnapshot, replaceMessages: boolean) {
-    sessionIdRef.current = snapshot.sessionId;
     setPendingPrompt(snapshot.pendingPrompt);
     setArtifacts(snapshot.artifacts);
     setHistoryTopics(snapshot.historyTopics);
@@ -136,24 +179,90 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
     }
   }
 
-  async function postSnapshot(body: Record<string, unknown>): Promise<ClassroomSessionSnapshot> {
-    const response = await fetch("/api/classroom", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-      throw new Error(payload?.message || "Không gọi được classroom API.");
+  function handleSocketMessage(event: MessageEvent<string>) {
+    let payload: ClassroomSocketEnvelope;
+    try {
+      payload = JSON.parse(event.data) as ClassroomSocketEnvelope;
+    } catch {
+      setErrorMessage("Nhận được dữ liệu không hợp lệ từ classroom websocket.");
+      return;
     }
 
-    return (await response.json()) as ClassroomSessionSnapshot;
+    const pending = pendingRequestsRef.current.get(payload.request_id);
+    if (!pending) {
+      return;
+    }
+    pendingRequestsRef.current.delete(payload.request_id);
+
+    if (payload.kind === "error") {
+      pending.reject(new Error(payload.message || "Classroom websocket failed."));
+      return;
+    }
+
+    pending.resolve(payload.snapshot);
+  }
+
+  function connectSocket(): Promise<WebSocket> {
+    return new Promise((resolve, reject) => {
+      const socket = new WebSocket(CLASSROOM_WS_URL);
+      let settled = false;
+
+      socket.onmessage = handleSocketMessage;
+      socket.onerror = () => {
+        if (!settled) {
+          reject(new Error("Không kết nối được classroom websocket backend."));
+          return;
+        }
+        setErrorMessage("Kết nối classroom websocket gặp lỗi.");
+      };
+      socket.onclose = () => {
+        if (socketRef.current === socket) {
+          socketRef.current = null;
+        }
+        rejectPendingRequests("Kết nối classroom websocket đã đóng. Hãy khởi tạo lại classroom.");
+        if (!settled) {
+          reject(new Error("Classroom websocket đã đóng trước khi khởi tạo xong."));
+        }
+      };
+      socket.onopen = () => {
+        settled = true;
+        socketRef.current = socket;
+        resolve(socket);
+      };
+    });
+  }
+
+  async function sendSocketRequest(
+    socket: WebSocket,
+    payload: Record<string, unknown>,
+  ): Promise<ClassroomSessionSnapshot> {
+    if (socket.readyState !== WebSocket.OPEN) {
+      throw new Error("Classroom websocket chưa sẵn sàng.");
+    }
+
+    const requestId = nextRequestId();
+    return await new Promise<ClassroomSessionSnapshot>((resolve, reject) => {
+      pendingRequestsRef.current.set(requestId, { resolve, reject });
+      socket.send(
+        JSON.stringify({
+          ...payload,
+          request_id: requestId,
+          source: "frontend_websocket",
+        }),
+      );
+    });
+  }
+
+  function requireOpenSocket(): WebSocket {
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      throw new Error("Phiên classroom websocket không còn hoạt động. Hãy khởi tạo lại classroom.");
+    }
+    return socket;
   }
 
   async function bootstrapSession(dayId: LectureDayId, currentSlide: number, autoMode: AgentFilter = "all") {
+    closeSocket();
     setIsBusy(true);
     setTypingLabel(typingLabelForFilter(autoMode));
     setErrorMessage(null);
@@ -163,7 +272,8 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
     setPendingPrompt(null);
 
     try {
-      const snapshot = await postSnapshot({
+      const socket = await connectSocket();
+      const snapshot = await sendSocketRequest(socket, {
         action: "bootstrap",
         dayId,
         currentSlide,
@@ -172,6 +282,7 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
       setAgentFilterState(autoMode);
       applySnapshot(snapshot, true);
     } catch (error) {
+      closeSocket();
       setErrorMessage(error instanceof Error ? error.message : "Không khởi tạo được phiên classroom.");
     } finally {
       setTypingLabel(null);
@@ -180,16 +291,13 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
   }
 
   async function syncSlide(currentSlide: number, autoMode: AgentFilter = agentFilter) {
-    if (!sessionIdRef.current) return;
-
     setIsBusy(true);
     setTypingLabel(typingLabelForFilter(autoMode));
     setErrorMessage(null);
 
     try {
-      const snapshot = await postSnapshot({
+      const snapshot = await sendSocketRequest(requireOpenSocket(), {
         action: "sync_slide",
-        sessionId: sessionIdRef.current,
         currentSlide,
         autoMode,
       });
@@ -204,7 +312,7 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
 
   async function sendMessage(text: string, target: AgentFilter, currentSlide: number) {
     const trimmed = text.trim();
-    if (!trimmed || !sessionIdRef.current) return;
+    if (!trimmed) return;
 
     setMessages((prev) => [
       ...prev,
@@ -223,9 +331,8 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
     setErrorMessage(null);
 
     try {
-      const snapshot = await postSnapshot({
+      const snapshot = await sendSocketRequest(requireOpenSocket(), {
         action: "message",
-        sessionId: sessionIdRef.current,
         currentSlide,
         target,
         text: trimmed,
@@ -247,6 +354,13 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
   async function resetConversation(dayId: LectureDayId, currentSlide: number) {
     await bootstrapSession(dayId, currentSlide, agentFilter);
   }
+
+  useEffect(() => {
+    return () => {
+      closeSocket();
+      rejectPendingRequests("Phiên classroom đã bị hủy.");
+    };
+  }, []);
 
   return {
     messages: visibleMessages,

@@ -2,6 +2,7 @@ export type AgentKey = "teacher" | "student" | "generator";
 export type SenderType = AgentKey | "user";
 export type AgentFilter = "all" | AgentKey;
 export type LectureDayId = "day1" | "day2";
+export type ConversationScope = "shared" | "private_ta" | "private_student" | "material";
 
 export interface Message {
   id: number;
@@ -151,20 +152,12 @@ export interface MindmapLeaf {
   detail: string;
 }
 
-/* ---------------------------------------------------------------------- */
-/* Checkpoint: quiz gắn tại 1 trang slide PDF cụ thể                     */
-/* ---------------------------------------------------------------------- */
-
 export interface Checkpoint {
   id: number;
   pageIndex: number;
   question: string;
   options: QuizOption[];
 }
-
-/* ---------------------------------------------------------------------- */
-/* Agent profile popup                                                    */
-/* ---------------------------------------------------------------------- */
 
 export interface AgentProfile {
   key: AgentKey;
@@ -174,12 +167,18 @@ export interface AgentProfile {
   quote: string;
 }
 
-/* ---------------------------------------------------------------------- */
-/* Agent chat history drawer                                              */
-/* ---------------------------------------------------------------------- */
-
 export interface ChatHistorySession {
   date: string;
   agent: AgentKey;
   topic: string;
+}
+
+export interface ConversationHistorySummary {
+  id: string;
+  artifact_id: LectureDayId;
+  scope: ConversationScope;
+  topic: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
 }

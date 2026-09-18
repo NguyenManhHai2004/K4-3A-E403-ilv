@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { checkpointsByDay } from "@/lib/mock-data";
-import { findLectureDay, lectureDays, type LectureDay } from "@/lib/lecture-data";
+import { findLectureDay, type LectureDay } from "@/lib/lecture-data";
 import { LessonSidebar } from "./LessonSidebar";
 import { PdfSlideStage } from "./PdfSlideStage";
 import { SlideFooterNav } from "./SlideFooterNav";
@@ -13,13 +13,13 @@ import { useToast } from "@/components/ui/ToastProvider";
 import type { LectureDayId } from "@/lib/types";
 
 interface LessonViewProps {
-  transcriptContents: Record<string, string>;
+  days: LectureDay[];
   initialDayId?: LectureDayId;
   initialSlide?: number;
 }
 
-export function LessonView({ transcriptContents, initialDayId, initialSlide = 1 }: LessonViewProps) {
-  const resolvedDayId = findLectureDay(initialDayId).id;
+export function LessonView({ days, initialDayId, initialSlide = 1 }: LessonViewProps) {
+  const resolvedDayId = findLectureDay(days, initialDayId).id;
   const resolvedSlide = Math.max(1, initialSlide);
   const [dayId, setDayId] = useState<LectureDay["id"]>(resolvedDayId);
   const [pageIndex, setPageIndex] = useState(resolvedSlide - 1);
@@ -28,7 +28,7 @@ export function LessonView({ transcriptContents, initialDayId, initialSlide = 1 
   const [activeCheckpointId, setActiveCheckpointId] = useState<number | null>(null);
   const { showToast } = useToast();
 
-  const day = findLectureDay(dayId);
+  const day = findLectureDay(days, dayId);
   const [transcriptId, setTranscriptId] = useState(day.transcripts[0]?.id);
   const activeTranscript = day.transcripts.find((t) => t.id === transcriptId) ?? day.transcripts[0];
 
@@ -43,7 +43,7 @@ export function LessonView({ transcriptContents, initialDayId, initialSlide = 1 
   }, [pageCount, pageIndex]);
 
   function handleSelectDay(id: LectureDay["id"]) {
-    const nextDay = lectureDays.find((d) => d.id === id);
+    const nextDay = days.find((d) => d.id === id);
     if (!nextDay) return;
     setDayId(id);
     setPageIndex(0);
@@ -96,7 +96,7 @@ export function LessonView({ transcriptContents, initialDayId, initialSlide = 1 
 
   return (
     <main className="view-container lesson-view active-view">
-      <LessonSidebar days={lectureDays} activeDayId={dayId} onSelectDay={handleSelectDay} />
+      <LessonSidebar days={days} activeDayId={dayId} onSelectDay={handleSelectDay} />
 
       <section className="lesson-main">
         <div className="lesson-content-header">
@@ -121,7 +121,7 @@ export function LessonView({ transcriptContents, initialDayId, initialSlide = 1 
 
         <div className="slide-stage-wrapper">
           <div className="lecture-day-tabs">
-            {lectureDays.map((d) => (
+            {days.map((d) => (
               <button
                 key={d.id}
                 className={`lecture-day-tab${d.id === dayId ? " active" : ""}`}
@@ -169,7 +169,7 @@ export function LessonView({ transcriptContents, initialDayId, initialSlide = 1 
           <div className="lecture-transcript-section">
             <div className="lecture-transcript-head">
               <span className="lecture-transcript-title">📝 Transcript bài giảng</span>
-              <span className="lecture-transcript-hint">Chưa có video ghi hình — hiển thị transcript thay thế</span>
+              <span className="lecture-transcript-hint">Dữ liệu transcript được phục vụ từ artifact đã ingest ở backend agents</span>
             </div>
 
             {day.transcripts.length > 1 && (
@@ -186,7 +186,7 @@ export function LessonView({ transcriptContents, initialDayId, initialSlide = 1 
               </div>
             )}
 
-            <TranscriptPanel raw={(activeTranscript && transcriptContents[activeTranscript.id]) || ""} />
+            <TranscriptPanel raw={activeTranscript?.content || ""} />
           </div>
         </div>
       </section>

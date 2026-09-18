@@ -51,7 +51,8 @@ or future timestamps.
 
 - If a student agent asks the class a question and the learner answers in time,
   evaluate the learner's answer.
-- If the learner does not answer in time, answer the question yourself.
+- Answer the question after 10 seconds if the learner does not answer in time.
+- Answer the question of learner if related to the lecture content
 
 ### Private TA chat
 

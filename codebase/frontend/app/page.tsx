@@ -1,17 +1,8 @@
-import fs from "node:fs";
-import path from "node:path";
-import { findLectureDay, lectureDays } from "@/lib/lecture-data";
 import { LessonView } from "@/components/lesson/LessonView";
-import type { LectureDayId } from "@/lib/types";
+import { fetchLectureDays } from "@/lib/agents-api";
+import { findLectureDay } from "@/lib/lecture-data";
 
-function readTranscript(fileName: string): string {
-  try {
-    const filePath = path.join(process.cwd(), "..", "vlearn-pack", "transcript", fileName);
-    return fs.readFileSync(filePath, "utf-8");
-  } catch {
-    return "";
-  }
-}
+export const dynamic = "force-dynamic";
 
 interface HomeProps {
   searchParams?: Promise<{
@@ -28,20 +19,9 @@ function parseSlide(raw: string | undefined): number {
 
 export default async function Home({ searchParams }: HomeProps) {
   const params = (await searchParams) || {};
-  const initialDayId = findLectureDay(params.day).id as LectureDayId;
+  const days = await fetchLectureDays();
+  const initialDayId = findLectureDay(days, params.day).id;
   const initialSlide = parseSlide(params.slide);
-  const transcriptContents: Record<string, string> = {};
-  for (const day of lectureDays) {
-    for (const t of day.transcripts) {
-      transcriptContents[t.id] = readTranscript(t.fileName);
-    }
-  }
 
-  return (
-    <LessonView
-      transcriptContents={transcriptContents}
-      initialDayId={initialDayId}
-      initialSlide={initialSlide}
-    />
-  );
+  return <LessonView days={days} initialDayId={initialDayId} initialSlide={initialSlide} />;
 }

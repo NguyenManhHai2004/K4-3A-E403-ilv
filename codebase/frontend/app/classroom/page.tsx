@@ -1,6 +1,8 @@
 import { ClassroomView } from "@/components/classroom/ClassroomView";
+import { fetchLectureDays } from "@/lib/agents-api";
 import { findLectureDay } from "@/lib/lecture-data";
-import type { LectureDayId } from "@/lib/types";
+
+export const dynamic = "force-dynamic";
 
 interface ClassroomPageProps {
   searchParams?: Promise<{
@@ -17,8 +19,9 @@ function parseSlide(raw: string | undefined): number {
 
 export default async function ClassroomPage({ searchParams }: ClassroomPageProps) {
   const params = (await searchParams) || {};
-  const initialDayId = findLectureDay(params.day).id as LectureDayId;
+  const days = await fetchLectureDays();
+  const initialDayId = findLectureDay(days, params.day).id;
   const initialSlide = parseSlide(params.slide);
 
-  return <ClassroomView initialDayId={initialDayId} initialSlide={initialSlide} />;
+  return <ClassroomView days={days} initialDayId={initialDayId} initialSlide={initialSlide} />;
 }
