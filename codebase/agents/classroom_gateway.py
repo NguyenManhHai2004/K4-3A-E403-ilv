@@ -13,12 +13,14 @@ from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request, Response
 
-from classroom_runtime import create_live_classroom_session
+from classroom_runtime import LiveClassroomSession, create_live_classroom_session
 from lesson_store import LessonStore
 
 
 HOST = os.getenv("CLASSROOM_API_HOST", "0.0.0.0")
 PORT = int(os.getenv("CLASSROOM_API_PORT", "8000"))
+STUDENT_DELAY_SECONDS = float(os.getenv("CLASSROOM_STUDENT_DELAY_SECONDS", "7"))
+ANSWER_TIMEOUT_SECONDS = float(os.getenv("CLASSROOM_ANSWER_TIMEOUT_SECONDS", "7"))
 
 
 def _cors_headers(content_type: str, *, content_length: int, cache_control: str = "no-store") -> Headers:
@@ -138,7 +140,116 @@ class ClassroomGateway:
         return self.handle_http_request(request)
 
     async def handle_websocket(self, connection: ServerConnection) -> None:
-        live_session = None
+        live_session: LiveClassroomSession | None = None
+        auto_prompt_task: asyncio.Task[None] | None = None
+        answer_timeout_task: asyncio.Task[None] | None = None
+        state_token = 0
+
+        async def send_snapshot(snapshot: dict[str, Any], *, request_id: str = "") -> None:
+            await connection.send(
+                json.dumps(
+                    {
+                        "kind": "snapshot",
+                        "request_id": request_id or str(uuid.uuid4()),
+                        "snapshot": snapshot,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+
+        def cancel_task(task: asyncio.Task[None] | None) -> None:
+            if task and not task.done():
+                task.cancel()
+
+        def cancel_scheduled_turns() -> None:
+            nonlocal auto_prompt_task, answer_timeout_task
+            cancel_task(auto_prompt_task)
+            cancel_task(answer_timeout_task)
+            auto_prompt_task = None
+            answer_timeout_task = None
+
+        def bump_state_token() -> int:
+            nonlocal state_token
+            state_token += 1
+            return state_token
+
+        def arm_answer_timeout(expected_token: int, expected_slide: int, expected_mode: str, expected_question: str) -> None:
+            nonlocal answer_timeout_task
+            cancel_task(answer_timeout_task)
+
+            async def runner() -> None:
+                try:
+                    await asyncio.sleep(ANSWER_TIMEOUT_SECONDS)
+                    if live_session is None or expected_token != state_token:
+                        return
+                    if live_session.session.current_slide != expected_slide:
+                        return
+                    if not live_session.pending_prompt:
+                        return
+                    if live_session.pending_prompt.get("mode") != expected_mode:
+                        return
+                    if live_session.pending_prompt.get("question") != expected_question:
+                        return
+                    snapshot = live_session.handle_timeout()
+                    if snapshot.get("events"):
+                        await send_snapshot(snapshot)
+                except asyncio.CancelledError:
+                    return
+
+            answer_timeout_task = asyncio.create_task(runner())
+
+        def arm_delayed_student_prompt(expected_token: int, expected_slide: int) -> None:
+            nonlocal auto_prompt_task
+            cancel_task(auto_prompt_task)
+
+            async def runner() -> None:
+                try:
+                    await asyncio.sleep(STUDENT_DELAY_SECONDS)
+                    if live_session is None or expected_token != state_token:
+                        return
+                    if live_session.session.current_slide != expected_slide:
+                        return
+                    snapshot = live_session.trigger_delayed_student_prompt()
+                    if snapshot.get("events"):
+                        await send_snapshot(snapshot)
+                    pending = live_session.pending_prompt
+                    if pending:
+                        arm_answer_timeout(
+                            expected_token,
+                            live_session.session.current_slide,
+                            pending["mode"],
+                            pending["question"],
+                        )
+                except asyncio.CancelledError:
+                    return
+
+            auto_prompt_task = asyncio.create_task(runner())
+
+        def arm_post_navigation_timers(expected_token: int) -> None:
+            cancel_scheduled_turns()
+            if live_session is None:
+                return
+            if live_session.auto_mode in {"all", "student"}:
+                arm_delayed_student_prompt(expected_token, live_session.session.current_slide)
+            elif live_session.pending_prompt:
+                arm_answer_timeout(
+                    expected_token,
+                    live_session.session.current_slide,
+                    live_session.pending_prompt["mode"],
+                    live_session.pending_prompt["question"],
+                )
+
+        def arm_post_message_timeout(expected_token: int) -> None:
+            cancel_task(answer_timeout_task)
+            if live_session is None or not live_session.pending_prompt:
+                return
+            arm_answer_timeout(
+                expected_token,
+                live_session.session.current_slide,
+                live_session.pending_prompt["mode"],
+                live_session.pending_prompt["question"],
+            )
+
         try:
             while True:
                 raw = await connection.recv()
@@ -150,6 +261,8 @@ class ClassroomGateway:
 
                     request_id = str(payload.get("request_id", "")).strip() or str(uuid.uuid4())
                     action = str(payload.get("action", "")).strip()
+                    token = bump_state_token()
+                    cancel_scheduled_turns()
 
                     if action == "bootstrap":
                         artifact_id = str(payload.get("dayId") or payload.get("artifact_id") or "day1").strip() or "day1"
@@ -165,16 +278,23 @@ class ClassroomGateway:
                             current_slide=_normalize_slide(payload.get("currentSlide")),
                             auto_mode=_normalize_auto_mode(payload.get("autoMode")),
                         )
-                    elif action == "sync_slide":
-                        if live_session is None:
-                            raise ValueError("Classroom session has not been bootstrapped.")
+                        await send_snapshot(snapshot, request_id=request_id)
+                        arm_post_navigation_timers(token)
+                        continue
+
+                    if live_session is None:
+                        raise ValueError("Classroom session has not been bootstrapped.")
+
+                    if action == "sync_slide":
                         snapshot = live_session.sync_slide(
                             current_slide=_normalize_slide(payload.get("currentSlide")),
                             auto_mode=_normalize_auto_mode(payload.get("autoMode")),
                         )
-                    elif action == "message":
-                        if live_session is None:
-                            raise ValueError("Classroom session has not been bootstrapped.")
+                        await send_snapshot(snapshot, request_id=request_id)
+                        arm_post_navigation_timers(token)
+                        continue
+
+                    if action == "message":
                         text = str(payload.get("text", "")).strip()
                         if not text:
                             raise ValueError("text must not be empty")
@@ -183,19 +303,11 @@ class ClassroomGateway:
                             target=_normalize_target(payload.get("target")),
                             text=text,
                         )
-                    else:
-                        raise ValueError(f"Unsupported action: {action}")
+                        await send_snapshot(snapshot, request_id=request_id)
+                        arm_post_message_timeout(token)
+                        continue
 
-                    await connection.send(
-                        json.dumps(
-                            {
-                                "kind": "snapshot",
-                                "request_id": request_id,
-                                "snapshot": snapshot,
-                            },
-                            ensure_ascii=False,
-                        )
-                    )
+                    raise ValueError(f"Unsupported action: {action}")
                 except Exception as exc:
                     await connection.send(
                         json.dumps(
@@ -210,6 +322,7 @@ class ClassroomGateway:
         except ConnectionClosed:
             pass
         finally:
+            cancel_scheduled_turns()
             if live_session is not None:
                 live_session.close()
 

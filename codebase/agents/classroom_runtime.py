@@ -128,6 +128,18 @@ def _material_artifact(result: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _resolve_ta_model(provider: Any, fallback_model: str | None) -> str | None:
+    env_override = os.getenv("CLASSROOM_TA_MODEL", "").strip()
+    if env_override:
+        return env_override
+    provider_module = type(provider).__module__
+    if provider_module.endswith("openrouter_provider"):
+        return "openai/gpt-4o"
+    if provider_module.endswith("openai_provider"):
+        return "gpt-4o"
+    return fallback_model
+
+
 @dataclass
 class LiveClassroomSession:
     session_id: str
@@ -138,15 +150,21 @@ class LiveClassroomSession:
     pending_prompt: dict[str, str] | None = None
     artifacts: dict[str, Any] = field(default_factory=empty_artifact_store)
     channel_histories: dict[str, list[str]] = field(default_factory=empty_channel_histories)
+    auto_mode: str = "all"
 
     def bootstrap(self, *, current_slide: int, auto_mode: str) -> dict[str, Any]:
+        self.auto_mode = auto_mode
+        self.pending_prompt = None
         self.session.set_current_slide(current_slide, reason="bootstrap", emit_log=False)
-        events = self._run_auto_turn(auto_mode)
+        events = self._immediate_mode_events(auto_mode)
         self._persist_agent_events(events)
         return self._snapshot(events)
 
     def sync_slide(self, *, current_slide: int, auto_mode: str) -> dict[str, Any]:
         previous_slide = self.session.current_slide
+        previous_mode = self.auto_mode
+        self.auto_mode = auto_mode
+        self.pending_prompt = None
         self.session.set_current_slide(current_slide, reason="state_restore", emit_log=False)
         if previous_slide != current_slide:
             self.session.logger.log_event(
@@ -161,7 +179,53 @@ class LiveClassroomSession:
                 slide_number=self.session.current_slide,
                 slide_title=self.session.get_current_slide().title,
             )
-        events = self._run_auto_turn(auto_mode)
+        elif previous_mode != auto_mode:
+            self.session.logger.log_event(
+                "mode_changed",
+                actor="learner",
+                previous_mode=previous_mode,
+                current_mode=auto_mode,
+                source_file=self.session.deck.source_path.name,
+                markdown_file=self.session.deck.markdown_path.name,
+                slide_number=self.session.current_slide,
+                slide_title=self.session.get_current_slide().title,
+            )
+        events = self._immediate_mode_events(auto_mode)
+        self._persist_agent_events(events)
+        return self._snapshot(events)
+
+    def trigger_delayed_student_prompt(self) -> dict[str, Any]:
+        if self.pending_prompt:
+            return self._snapshot([])
+        if self.auto_mode == "all":
+            student_turn = self._run_in_scope("shared", self.session.start_shared_round)
+            event = _message_event("student", student_turn, channel="shared")
+            events = [event] if event["reply"] else []
+            if event["reply"]:
+                self.pending_prompt = {"mode": "shared", "question": event["reply"]}
+        elif self.auto_mode == "student":
+            student_turn = self._run_in_scope("private_student", self.session.start_private_student_round)
+            event = _message_event("student", student_turn, channel="private_student")
+            events = [event] if event["reply"] else []
+            if event["reply"]:
+                self.pending_prompt = {"mode": "student", "question": event["reply"]}
+        else:
+            events = []
+        self._persist_agent_events(events)
+        return self._snapshot(events)
+
+    def handle_timeout(self) -> dict[str, Any]:
+        if not self.pending_prompt:
+            return self._snapshot([])
+        question = self.pending_prompt["question"]
+        if self.pending_prompt["mode"] == "shared":
+            ta_turn = self._teacher_reply_after_timeout(question, channel="shared", mode="shared_classroom")
+            event = _message_event("teacher", ta_turn, channel="shared")
+        else:
+            ta_turn = self._teacher_reply_after_timeout(question, channel="private_student", mode="private_student_chat")
+            event = _message_event("teacher", ta_turn, channel="private_student")
+        self.pending_prompt = None
+        events = [event] if event["reply"] else []
         self._persist_agent_events(events)
         return self._snapshot(events)
 
@@ -171,9 +235,14 @@ class LiveClassroomSession:
         new_artifacts: list[dict[str, Any]] = []
         trimmed = text.strip()
 
-        if target == "teacher":
+        if self.pending_prompt and self.pending_prompt.get("mode") == "shared" and target in {"all", "teacher"}:
+            self._persist_user_turn("shared", trimmed, intent="learner_turn")
+            ta_turn = self._teacher_follow_up_shared(self.pending_prompt["question"], trimmed)
+            self.pending_prompt = None
+            events.append(_message_event("teacher", ta_turn, channel="shared"))
+        elif target == "teacher":
             self._persist_user_turn("private_ta", trimmed, intent="question")
-            ta_turn = self._run_in_scope("private_ta", lambda: self.session.ask_ta(trimmed, channel="private_ta"))
+            ta_turn = self._teacher_private_reply(trimmed, channel="private_ta")
             events.append(_message_event("teacher", ta_turn, channel="private_ta"))
         elif target == "generator":
             self._persist_user_turn("material", trimmed, intent="generate_material")
@@ -199,14 +268,6 @@ class LiveClassroomSession:
                 if event["reply"]:
                     self.pending_prompt = {"mode": "student", "question": event["reply"]}
                     events.append(event)
-        elif self.pending_prompt and self.pending_prompt.get("mode") == "shared":
-            self._persist_user_turn("shared", trimmed, intent="answer")
-            ta_turn = self._run_in_scope(
-                "shared",
-                lambda: self.session.finish_shared_round(self.pending_prompt["question"], trimmed),
-            )
-            self.pending_prompt = None
-            events.append(_message_event("teacher", ta_turn, channel="shared"))
         elif any(keyword in trimmed.lower() for keyword in ("quiz", "flashcard", "flash card", "mindmap", "mind map")):
             self._persist_user_turn("material", trimmed, intent="generate_material")
             result = self._run_in_scope("material", lambda: self.session.generate_material(_infer_material_type(trimmed), trimmed))
@@ -218,7 +279,7 @@ class LiveClassroomSession:
                 new_artifacts.append(artifact)
         else:
             self._persist_user_turn("shared", trimmed, intent="question")
-            ta_turn = self._run_in_scope("shared", lambda: self.session.ask_ta(trimmed, channel="shared"))
+            ta_turn = self._teacher_private_reply(trimmed, channel="shared")
             events.append(_message_event("teacher", ta_turn, channel="shared"))
 
         self._merge_artifacts(new_artifacts)
@@ -236,36 +297,135 @@ class LiveClassroomSession:
                 slide_title=self.session.get_current_slide().title,
             )
 
-    def _run_auto_turn(self, auto_mode: str) -> list[dict[str, Any]]:
-        if auto_mode == "all":
-            student_turn = self._run_in_scope("shared", self.session.start_shared_round)
-            event = _message_event("student", student_turn, channel="shared")
-            if event["reply"]:
-                self.pending_prompt = {"mode": "shared", "question": event["reply"]}
-                return [event]
-            self.pending_prompt = None
+    def _immediate_mode_events(self, auto_mode: str) -> list[dict[str, Any]]:
+        if auto_mode != "teacher":
             return []
-        if auto_mode == "teacher":
-            ta_turn = self._run_in_scope(
-                "private_ta",
-                lambda: self.session.ask_ta(
-                    "Em vừa chuyển sang slide này. Thầy hãy tóm tắt ngắn ý chính và nhắc em 1 điểm quan trọng cần chú ý.",
-                    channel="private_ta",
-                ),
-            )
-            self.pending_prompt = None
-            event = _message_event("teacher", ta_turn, channel="private_ta")
-            return [event] if event["reply"] else []
-        if auto_mode == "student":
-            student_turn = self._run_in_scope("private_student", self.session.start_private_student_round)
-            event = _message_event("student", student_turn, channel="private_student")
-            if event["reply"]:
-                self.pending_prompt = {"mode": "student", "question": event["reply"]}
-                return [event]
-            self.pending_prompt = None
-            return []
-        self.pending_prompt = None
-        return []
+        ta_turn = self._teacher_slide_summary()
+        event = _message_event("teacher", ta_turn, channel="private_ta")
+        return [event] if event["reply"] else []
+
+    def _teacher_slide_summary(self) -> dict[str, Any]:
+        return self._run_ta_turn(
+            scope="private_ta",
+            channel="private_ta",
+            mode="private_ta_chat",
+            task=(
+                "Người học vừa dừng ở slide hiện tại và đang chờ TA chủ động hỗ trợ.\n"
+                "Hãy tóm tắt ngắn ý chính của slide này và nhắc đúng 1 điểm quan trọng cần chú ý."
+            ),
+        )
+
+    def _teacher_private_reply(self, learner_message: str, *, channel: str) -> dict[str, Any]:
+        mode = "shared_classroom" if channel == "shared" else "private_ta_chat"
+        return self._run_ta_turn(
+            scope="shared" if channel == "shared" else "private_ta",
+            channel=channel,
+            mode=mode,
+            learner_message=learner_message,
+            message_kind="question",
+            log_target="teacher",
+            task=(
+                "Người học đang trao đổi trực tiếp với TA.\n"
+                f"Tin nhắn của người học: {learner_message}\n"
+                "Hãy trả lời rõ ràng, có thể xác nhận/chỉnh sửa hiểu nhầm nếu cần, và bám sát nội dung bài giảng."
+            ),
+        )
+
+    def _teacher_follow_up_shared(self, student_question: str, learner_message: str) -> dict[str, Any]:
+        return self._run_ta_turn(
+            scope="shared",
+            channel="shared",
+            mode="shared_classroom",
+            learner_message=learner_message,
+            message_kind="learner_turn",
+            log_target="student",
+            related_question=student_question,
+            task=(
+                "Trong lớp học chung, student agent vừa hỏi người học.\n"
+                f"Câu hỏi của student agent: {student_question}\n"
+                f"Tin nhắn mới của người học: {learner_message}\n"
+                "Hãy tự xác định đây là câu trả lời cho câu hỏi của student agent hay là một câu hỏi/thắc mắc mới.\n"
+                "Nếu là câu trả lời, hãy đánh giá bằng đúng một nhãn: đúng | thiếu | sai | không đủ thông tin, rồi xác nhận/chỉnh sửa ngắn gọn.\n"
+                "Nếu là câu hỏi mới, hãy trả lời câu hỏi đó rõ ràng và có thể liên hệ ngắn gọn tới câu hỏi trước nếu hữu ích."
+            ),
+        )
+
+    def _teacher_reply_after_timeout(self, student_question: str, *, channel: str, mode: str) -> dict[str, Any]:
+        scope = "shared" if channel == "shared" else "private_student"
+        self.session._log_event(
+            "learner_timeout",
+            actor="learner",
+            target="student",
+            channel=channel,
+            related_question=student_question,
+        )
+        return self._run_ta_turn(
+            scope=scope,
+            channel=channel,
+            mode=mode,
+            task=(
+                "Student agent đã hỏi người học nhưng sau 10 giây vẫn không nhận được câu trả lời.\n"
+                "timeout_status: timed_out\n"
+                f"Câu hỏi cần TA trả lời thay: {student_question}\n"
+                "Hãy nói rõ rằng đã hết thời gian và trả lời ngắn gọn, chính xác thay cho người học."
+            ),
+        )
+
+    def _run_ta_turn(
+        self,
+        *,
+        scope: str,
+        channel: str,
+        mode: str,
+        task: str,
+        learner_message: str | None = None,
+        message_kind: str = "question",
+        log_target: str = "teacher",
+        related_question: str | None = None,
+    ) -> dict[str, Any]:
+        def invoke() -> dict[str, Any]:
+            if learner_message:
+                self.session._log_event(
+                    "learner_message",
+                    actor="learner",
+                    target=log_target,
+                    channel=channel,
+                    message_kind=message_kind,
+                    related_question=related_question,
+                    message=learner_message,
+                )
+                self.session._record_history("Learner", learner_message)
+            prompt = self._build_ta_prompt(mode=mode, task=task)
+            response = self.session._run_json_agent(self.session.ta_agent, prompt)
+            self.session._record_history("TA", response.get("reply", ""))
+            self.session._log_agent_message("teacher", response, channel=channel, target="learner")
+            return response
+
+        return self._run_in_scope(scope, invoke)
+
+    def _build_ta_prompt(self, *, mode: str, task: str) -> str:
+        slide = self.session.get_current_slide()
+        history = "\n".join(f"- {entry}" for entry in self.session.chat_history[-10:]) or "- (no recent turns)"
+        lecture_content = "\n\n".join(
+            f"## Slide {item.number} — {item.title}\n\n{item.content}" for item in self.session.deck.slides
+        )
+        return (
+            "Trusted classroom state\n"
+            f"- mode: {mode}\n"
+            f"- current_position: slide {slide.number}\n"
+            f"- current_slide_title: {slide.title}\n"
+            f"- source_file: {self.session.deck.source_path.name}\n"
+            f"- markdown_file: {self.session.deck.markdown_path.name}\n"
+            f"- chat_history:\n{history}\n\n"
+            "current_segment\n"
+            f"## Slide {slide.number} — {slide.title}\n\n{slide.content}\n\n"
+            "covered_content\n"
+            f"{self.session.deck.covered_content(slide.number)}\n\n"
+            "lecture_content\n"
+            f"{lecture_content}\n\n"
+            "Task\n"
+            f"{task}"
+        )
 
     def _run_in_scope(self, scope: str, fn: Callable[[], HistoryCallable]) -> HistoryCallable:
         scoped_history = list(self.channel_histories.get(scope, []))
@@ -343,6 +503,7 @@ def create_live_classroom_session(
     logger = ClassroomLogger(session_id=session_uuid, source=source)
     provider = make_provider(resolved_provider)
     session = ClassroomSession(deck=deck, provider=provider, model=model, logger=logger)
+    session.ta_agent.model = _resolve_ta_model(provider, model)
     session.set_current_slide(current_slide, reason="state_restore", emit_log=False)
     logger.log_event(
         "session_started",
@@ -350,6 +511,7 @@ def create_live_classroom_session(
         day_id=artifact_id,
         provider=resolved_provider,
         model=model,
+        ta_model=session.ta_agent.model,
         source_file=session.deck.source_path.name,
         markdown_file=session.deck.markdown_path.name,
         slide_number=session.current_slide,

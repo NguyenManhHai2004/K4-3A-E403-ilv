@@ -225,7 +225,14 @@ class LessonStore:
                     "session_id": session_id,
                     "scope": scope,
                     "created_at": timestamp,
+                    "message_count": 0,
                 },
+            },
+            upsert=True,
+        )
+        self.conversation_histories.update_one(
+            {"id": conversation_id},
+            {
                 "$set": {
                     "topic": _topic_preview(cleaned_message),
                     "updated_at": timestamp,
@@ -233,7 +240,6 @@ class LessonStore:
                 "$push": {"turns": turn},
                 "$inc": {"message_count": 1},
             },
-            upsert=True,
         )
 
     def list_conversations(self, artifact_id: str, *, limit: int = 50) -> list[dict[str, Any]]:

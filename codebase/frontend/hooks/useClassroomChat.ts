@@ -190,6 +190,12 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
 
     const pending = pendingRequestsRef.current.get(payload.request_id);
     if (!pending) {
+      if (payload.kind === "error") {
+        setErrorMessage(payload.message || "Classroom websocket failed.");
+        return;
+      }
+      setErrorMessage(null);
+      applySnapshot(payload.snapshot, false);
       return;
     }
     pendingRequestsRef.current.delete(payload.request_id);
