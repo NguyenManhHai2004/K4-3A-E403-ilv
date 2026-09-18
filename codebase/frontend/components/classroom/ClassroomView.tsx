@@ -82,6 +82,9 @@ export function ClassroomView({
     sessionMeta,
     errorMessage,
     isBusy,
+    replyingTo,
+    setReplyingTo,
+    cancelReply,
     bootstrapSession,
     syncSlide,
     sendMessage,
@@ -396,11 +399,14 @@ export function ClassroomView({
             typingLabel={typingLabel}
             dayId={dayId}
             currentSlide={pageIndex + 1}
+            onInitiateReply={(msg) => setReplyingTo(msg)}
           />
           <ChatComposer
             defaultTarget={agentFilter}
+            replyingToMessage={replyingTo}
+            onCancelReply={cancelReply}
             onSend={(text, target) =>
-              void sendMessage(text, target, pageIndex + 1)
+              void sendMessage(text, target, pageIndex + 1, replyingTo)
             }
           />
           {isBusy && !typingLabel && <div className="classroom-loading-bar" />}

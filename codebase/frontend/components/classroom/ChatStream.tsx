@@ -11,6 +11,7 @@ interface ChatStreamProps {
   onPreviewArtifacts?: () => void;
   dayId?: string;
   currentSlide?: number;
+  onInitiateReply?: (message: Message) => void;
 }
 
 function roleBadgeClass(senderType: Message["senderType"]): string {
@@ -24,6 +25,7 @@ export function ChatStream({
   typingLabel,
   dayId = "day1",
   currentSlide = 1,
+  onInitiateReply,
 }: ChatStreamProps) {
   const streamRef = useRef<HTMLDivElement>(null);
   const { showToast } = useToast();
@@ -33,13 +35,26 @@ export function ChatStream({
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, typingLabel]);
 
+  function scrollToMessage(targetId: string | number | undefined) {
+    if (!targetId) return;
+    const element = document.getElementById(`msg-${targetId}`);
+    if (!element) return;
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    element.classList.remove("msg-highlight");
+    void element.offsetWidth;
+    element.classList.add("msg-highlight");
+    setTimeout(() => {
+      element.classList.remove("msg-highlight");
+    }, 2000);
+  }
+
   return (
     <>
       <div className="chat-stream" ref={streamRef}>
         {messages.map((msg) => {
           const isUser = msg.senderType === "user";
           return (
-            <div key={msg.id} className={`msg-row${isUser ? " user" : ""}`}>
+            <div key={msg.id} id={`msg-${msg.id}`} className={`msg-row${isUser ? " user" : ""}`}>
               <div className={`msg-avatar${isUser ? " user-av" : " avatar-" + msg.senderType}`}>
                 {isUser ? "HV" : msg.avatar}
               </div>
@@ -50,8 +65,35 @@ export function ChatStream({
                     <span className={`msg-role-badge ${roleBadgeClass(msg.senderType)}`}>{msg.role}</span>
                   )}
                   <span className="msg-time">{msg.time}</span>
+                  <button
+                    type="button"
+                    className="btn-reply-msg"
+                    onClick={() => onInitiateReply?.(msg)}
+                    title="Trả lời tin nhắn này"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <polyline points="9 17 4 12 9 7"></polyline>
+                      <path d="M20 18v-2a4 4 0 0 0-4-4H4"></path>
+                    </svg>
+                    <span>Trả lời</span>
+                  </button>
                 </div>
                 <div className={`msg-bubble ${msg.senderType}`}>
+                  {msg.replyTo && (
+                    <div
+                      className="msg-quote-block"
+                      onClick={() => scrollToMessage(msg.replyTo?.id)}
+                      role="button"
+                      tabIndex={0}
+                      title="Nhấn để cuộn đến tin nhắn gốc"
+                    >
+                      <div className="msg-quote-bar" />
+                      <div className="msg-quote-body">
+                        <span className="msg-quote-author">{msg.replyTo.senderName}</span>
+                        <p className="msg-quote-text truncate">{msg.replyTo.text}</p>
+                      </div>
+                    </div>
+                  )}
                   <span dangerouslySetInnerHTML={{ __html: msg.text }} />
                   
                   {/* {msg.citation && (

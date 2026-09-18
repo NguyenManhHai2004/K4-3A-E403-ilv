@@ -94,10 +94,25 @@ function typingLabelForFilter(target: AgentFilter): string {
   return "Các agent đang đồng bộ với slide hiện tại...";
 }
 
-function eventToMessage(event: ClassroomAgentEvent, nextId: number): Message {
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function resolveReplyTo(replyToId: string | number | undefined, messageList: Message[]): Message["replyTo"] {
+  if (replyToId == null) return undefined;
+  const target = messageList.find((m) => String(m.id) === String(replyToId));
+  if (!target) return undefined;
+  return {
+    id: target.id,
+    senderName: target.senderName,
+    text: stripHtml(target.text),
+  };
+}
+
+function eventToMessage(event: ClassroomAgentEvent, nextId: string | number, messageList: Message[] = []): Message {
   const meta = agentMeta[event.agent];
   return {
-    id: nextId,
+    id: event.id ?? nextId,
     senderType: event.agent,
     senderName: meta.senderName,
     role: meta.role,
@@ -107,6 +122,7 @@ function eventToMessage(event: ClassroomAgentEvent, nextId: number): Message {
     citation: event.citations.join(" • ") || undefined,
     activeRecallPrompt: Boolean(event.active_recall),
     hasArtifactNotice: event.agent === "generator",
+    replyTo: resolveReplyTo(event.reply_to_id, messageList),
   };
 }
 
@@ -128,6 +144,7 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
 
   const visibleMessages = useMemo(() => {
     return messages.filter((msg) => {
@@ -152,9 +169,9 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
     }
   }
 
-  function nextMessageId(): number {
+  function nextMessageId(): string {
     messageIdRef.current += 1;
-    return Date.now() + messageIdRef.current;
+    return `msg_${Date.now()}_${messageIdRef.current}`;
   }
 
   function applySnapshot(snapshot: ClassroomSessionSnapshot, replaceMessages: boolean) {
@@ -168,11 +185,16 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
       maxSlide: snapshot.maxSlide,
     });
 
-    const incomingMessages = snapshot.events
-      .filter((event) => event.kind === "message" && event.reply.trim())
-      .map((event) => eventToMessage(event, nextMessageId()));
-
-    setMessages((prev) => (replaceMessages ? incomingMessages : [...prev, ...incomingMessages]));
+    setMessages((prev) => {
+      const list = replaceMessages ? [] : [...prev];
+      for (const event of snapshot.events) {
+        if (event.kind === "message" && event.reply.trim()) {
+          const msg = eventToMessage(event, nextMessageId(), list);
+          list.push(msg);
+        }
+      }
+      return list;
+    });
 
     if (snapshot.events.some((event) => event.agent === "generator")) {
       onArtifactCreated?.();
@@ -316,22 +338,40 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
     }
   }
 
-  async function sendMessage(text: string, target: AgentFilter, currentSlide: number) {
+  async function sendMessage(
+    text: string,
+    target: AgentFilter,
+    currentSlide: number,
+    replyToMessage?: Message | null,
+  ) {
     const trimmed = text.trim();
     if (!trimmed) return;
+
+    const targetReply = replyToMessage ?? replyingTo;
+    const userMsgId = `msg_${Date.now()}_${messageIdRef.current + 1}`;
+    messageIdRef.current += 1;
+    const userReplyTo = targetReply
+      ? {
+          id: targetReply.id,
+          senderName: targetReply.senderName,
+          text: stripHtml(targetReply.text),
+        }
+      : undefined;
 
     setMessages((prev) => [
       ...prev,
       {
-        id: nextMessageId(),
+        id: userMsgId,
         senderType: "user",
         senderName: "Bạn (Học viên)",
         role: "Học viên",
         avatar: "HV",
         time: currentTimeString(),
         text: formatMessageHtml(trimmed),
+        replyTo: userReplyTo,
       },
     ]);
+    setReplyingTo(null);
     setIsBusy(true);
     setTypingLabel(typingLabelForFilter(target));
     setErrorMessage(null);
@@ -342,6 +382,8 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
         currentSlide,
         target,
         text: trimmed,
+        message_id: userMsgId,
+        reply_to_id: targetReply ? targetReply.id : undefined,
       });
       applySnapshot(snapshot, false);
     } catch (error) {
@@ -378,6 +420,9 @@ export function useClassroomChat(onArtifactCreated?: () => void) {
     sessionMeta,
     errorMessage,
     isBusy,
+    replyingTo,
+    setReplyingTo,
+    cancelReply: () => setReplyingTo(null),
     bootstrapSession,
     syncSlide,
     sendMessage,

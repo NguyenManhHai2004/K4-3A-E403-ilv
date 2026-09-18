@@ -76,8 +76,20 @@ def _infer_material_type(text: str) -> str:
     return types[0] if types else "quiz"
 
 
-def _message_event(agent: str, payload: dict[str, Any], *, channel: str) -> dict[str, Any]:
+def _message_event(
+    agent: str,
+    payload: dict[str, Any],
+    *,
+    channel: str,
+    event_id: str | None = None,
+    reply_to_id: str | None = None,
+) -> dict[str, Any]:
+    resolved_id = str(event_id or payload.get("id") or f"msg_{uuid.uuid4().hex[:8]}").strip()
+    resolved_reply_to = reply_to_id if reply_to_id is not None else payload.get("reply_to_id")
+    if resolved_reply_to is not None:
+        resolved_reply_to = str(resolved_reply_to).strip() or None
     return {
+        "id": resolved_id,
         "kind": "message",
         "agent": agent,
         "channel": channel,
@@ -85,6 +97,7 @@ def _message_event(agent: str, payload: dict[str, Any], *, channel: str) -> dict
         "reply": str(payload.get("reply", "")).strip(),
         "citations": _normalize_refs(payload.get("citations") or payload.get("evidence_ids")),
         "active_recall": agent == "student" and str(payload.get("intent")) == "ask_question",
+        "reply_to_id": resolved_reply_to,
     }
 
 
@@ -168,6 +181,7 @@ class LiveClassroomSession:
         self.auto_mode = auto_mode
         self.pending_prompt = None
         self._load_persisted_artifacts()
+        self._load_persisted_history()
         self.session.set_current_slide(current_slide, reason="bootstrap", emit_log=False)
         events = self._immediate_mode_events(auto_mode)
         self._persist_agent_events(events)
@@ -242,29 +256,60 @@ class LiveClassroomSession:
         self._persist_agent_events(events)
         return self._snapshot(events)
 
-    def handle_message(self, *, current_slide: int, target: str, text: str) -> dict[str, Any]:
+    def handle_message(
+        self,
+        *,
+        current_slide: int,
+        target: str,
+        text: str,
+        message_id: str | None = None,
+        reply_to_id: str | None = None,
+    ) -> dict[str, Any]:
         self.session.set_current_slide(current_slide, reason="state_restore", emit_log=False)
         events: list[dict[str, Any]] = []
         new_artifacts: list[dict[str, Any]] = []
         trimmed = text.strip()
+        user_turn_id = message_id or f"msg_{uuid.uuid4().hex[:8]}"
 
         if self.pending_prompt and self.pending_prompt.get("mode") == "shared" and target in {"all", "teacher"}:
-            self._persist_user_turn("shared", trimmed, intent="learner_turn")
-            ta_turn = self._teacher_follow_up_shared(self.pending_prompt["question"], trimmed)
+            self._persist_user_turn("shared", trimmed, intent="learner_turn", turn_id=user_turn_id, reply_to_id=reply_to_id)
+            ta_turn = self._teacher_follow_up_shared(
+                self.pending_prompt["question"],
+                trimmed,
+                user_turn_id=user_turn_id,
+                reply_to_id=reply_to_id,
+            )
             self.pending_prompt = None
             events.append(_message_event("teacher", ta_turn, channel="shared"))
         elif target == "teacher":
-            self._persist_user_turn("private_ta", trimmed, intent="question")
-            ta_turn = self._teacher_private_reply(trimmed, channel="private_ta")
+            self._persist_user_turn("private_ta", trimmed, intent="question", turn_id=user_turn_id, reply_to_id=reply_to_id)
+            ta_turn = self._teacher_private_reply(
+                trimmed,
+                channel="private_ta",
+                user_turn_id=user_turn_id,
+                reply_to_id=reply_to_id,
+            )
             events.append(_message_event("teacher", ta_turn, channel="private_ta"))
         elif target == "generator":
-            self._handle_generator_turn(trimmed, events, new_artifacts, channel="material")
+            self._handle_generator_turn(
+                trimmed,
+                events,
+                new_artifacts,
+                channel="material",
+                user_turn_id=user_turn_id,
+                reply_to_id=reply_to_id,
+            )
         elif target == "student":
             if self.pending_prompt and self.pending_prompt.get("mode") == "student":
-                self._persist_user_turn("private_student", trimmed, intent="answer")
+                self._persist_user_turn("private_student", trimmed, intent="answer", turn_id=user_turn_id, reply_to_id=reply_to_id)
                 student_feedback = self._run_in_scope(
                     "private_student",
-                    lambda: self.session.finish_private_student_round(self.pending_prompt["question"], trimmed),
+                    lambda: self.session.finish_private_student_round(
+                        self.pending_prompt["question"],
+                        trimmed,
+                        msg_id=user_turn_id,
+                        reply_to_id=reply_to_id,
+                    ),
                 )
                 self.pending_prompt = None
                 events.append(_message_event("student", student_feedback, channel="private_student"))
@@ -275,10 +320,22 @@ class LiveClassroomSession:
                     self.pending_prompt = {"mode": "student", "question": event["reply"]}
                     events.append(event)
         elif any(keyword in trimmed.lower() for keyword in ("quiz", "flashcard", "flash card", "mindmap", "mind map")):
-            self._handle_generator_turn(trimmed, events, new_artifacts, channel="material")
+            self._handle_generator_turn(
+                trimmed,
+                events,
+                new_artifacts,
+                channel="material",
+                user_turn_id=user_turn_id,
+                reply_to_id=reply_to_id,
+            )
         else:
-            self._persist_user_turn("shared", trimmed, intent="question")
-            ta_turn = self._teacher_private_reply(trimmed, channel="shared")
+            self._persist_user_turn("shared", trimmed, intent="question", turn_id=user_turn_id, reply_to_id=reply_to_id)
+            ta_turn = self._teacher_private_reply(
+                trimmed,
+                channel="shared",
+                user_turn_id=user_turn_id,
+                reply_to_id=reply_to_id,
+            )
             events.append(_message_event("teacher", ta_turn, channel="shared"))
 
         self._merge_artifacts(new_artifacts)
@@ -292,8 +349,10 @@ class LiveClassroomSession:
         new_artifacts: list[dict[str, Any]],
         *,
         channel: str = "material",
+        user_turn_id: str | None = None,
+        reply_to_id: str | None = None,
     ) -> None:
-        self._persist_user_turn(channel, trimmed, intent="generate_material")
+        self._persist_user_turn(channel, trimmed, intent="generate_material", turn_id=user_turn_id, reply_to_id=reply_to_id)
         types = _infer_material_types(trimmed)
         mat_type = types[0] if len(types) == 1 else None
         result = self._run_in_scope(channel, lambda: self.session.generate_material(mat_type, trimmed))
@@ -310,12 +369,13 @@ class LiveClassroomSession:
 
         if len(artifacts) == 0:
             if payload.get("reply"):
-                events.append(_message_event("generator", payload, channel=channel))
+                events.append(_message_event("generator", payload, channel=channel, reply_to_id=user_turn_id))
         elif len(artifacts) == 1:
             art = artifacts[0]
             t_name = type_names.get(art["material_type"], art["material_type"])
             reply = payload.get("reply") or f"Đã tạo thành công {t_name}: **{art['title']}** ({art['item_count']} mục)."
             events.append({
+                "id": f"msg_{uuid.uuid4().hex[:8]}",
                 "kind": "message",
                 "agent": "generator",
                 "channel": channel,
@@ -323,6 +383,7 @@ class LiveClassroomSession:
                 "reply": reply,
                 "citations": art.get("citations", []),
                 "active_recall": False,
+                "reply_to_id": user_turn_id,
             })
         else:
             for art in artifacts:
@@ -334,6 +395,7 @@ class LiveClassroomSession:
                 )
                 reply = f"⚡ Đã tạo thành công **{t_name}**: **{art['title']}** ({art['item_count']} {item_label})."
                 events.append({
+                    "id": f"msg_{uuid.uuid4().hex[:8]}",
                     "kind": "message",
                     "agent": "generator",
                     "channel": channel,
@@ -341,6 +403,7 @@ class LiveClassroomSession:
                     "reply": reply,
                     "citations": art.get("citations", []),
                     "active_recall": False,
+                    "reply_to_id": user_turn_id,
                 })
 
 
@@ -373,8 +436,16 @@ class LiveClassroomSession:
             ),
         )
 
-    def _teacher_private_reply(self, learner_message: str, *, channel: str) -> dict[str, Any]:
+    def _teacher_private_reply(
+        self,
+        learner_message: str,
+        *,
+        channel: str,
+        user_turn_id: str | None = None,
+        reply_to_id: str | None = None,
+    ) -> dict[str, Any]:
         mode = "shared_classroom" if channel == "shared" else "private_ta_chat"
+        reply_hint = f"\n(Người học đang reply tin nhắn: {reply_to_id})" if reply_to_id else ""
         return self._run_ta_turn(
             scope="shared" if channel == "shared" else "private_ta",
             channel=channel,
@@ -382,14 +453,24 @@ class LiveClassroomSession:
             learner_message=learner_message,
             message_kind="question",
             log_target="teacher",
+            user_turn_id=user_turn_id,
+            reply_to_id=reply_to_id,
             task=(
                 "Người học đang trao đổi trực tiếp với TA.\n"
-                f"Tin nhắn của người học: {learner_message}\n"
+                f"Tin nhắn của người học: {learner_message}{reply_hint}\n"
                 "Hãy trả lời rõ ràng, có thể xác nhận/chỉnh sửa hiểu nhầm nếu cần, và bám sát nội dung bài giảng."
             ),
         )
 
-    def _teacher_follow_up_shared(self, student_question: str, learner_message: str) -> dict[str, Any]:
+    def _teacher_follow_up_shared(
+        self,
+        student_question: str,
+        learner_message: str,
+        *,
+        user_turn_id: str | None = None,
+        reply_to_id: str | None = None,
+    ) -> dict[str, Any]:
+        reply_hint = f"\n(Người học đang reply tin nhắn: {reply_to_id})" if reply_to_id else ""
         return self._run_ta_turn(
             scope="shared",
             channel="shared",
@@ -398,10 +479,12 @@ class LiveClassroomSession:
             message_kind="learner_turn",
             log_target="student",
             related_question=student_question,
+            user_turn_id=user_turn_id,
+            reply_to_id=reply_to_id,
             task=(
                 "Trong lớp học chung, student agent vừa hỏi người học.\n"
                 f"Câu hỏi của student agent: {student_question}\n"
-                f"Tin nhắn mới của người học: {learner_message}\n"
+                f"Tin nhắn mới của người học: {learner_message}{reply_hint}\n"
                 "Hãy tự xác định đây là câu trả lời cho câu hỏi của student agent hay là một câu hỏi/thắc mắc mới.\n"
                 "Nếu là câu trả lời, hãy đánh giá bằng đúng một nhãn: đúng | thiếu | sai | không đủ thông tin, rồi xác nhận/chỉnh sửa ngắn gọn.\n"
                 "Nếu là câu hỏi mới, hãy trả lời câu hỏi đó rõ ràng và có thể liên hệ ngắn gọn tới câu hỏi trước nếu hữu ích."
@@ -440,6 +523,8 @@ class LiveClassroomSession:
         message_kind: str = "question",
         log_target: str = "teacher",
         related_question: str | None = None,
+        user_turn_id: str | None = None,
+        reply_to_id: str | None = None,
     ) -> dict[str, Any]:
         def invoke() -> dict[str, Any]:
             if learner_message:
@@ -451,11 +536,17 @@ class LiveClassroomSession:
                     message_kind=message_kind,
                     related_question=related_question,
                     message=learner_message,
+                    reply_to_id=reply_to_id,
                 )
-                self.session._record_history("Learner", learner_message)
+                self.session._record_history("Learner", learner_message, msg_id=user_turn_id)
             prompt = self._build_ta_prompt(mode=mode, task=task)
             response = self.session._run_json_agent(self.session.ta_agent, prompt)
-            self.session._record_history("TA", response.get("reply", ""))
+            if reply_to_id and not response.get("reply_to_id"):
+                response["reply_to_id"] = reply_to_id
+            elif not response.get("reply_to_id"):
+                response["reply_to_id"] = user_turn_id
+            agent_msg_id = self.session._record_history("TA", response.get("reply", ""))
+            response["id"] = agent_msg_id
             self.session._log_agent_message("teacher", response, channel=channel, target="learner")
             return response
 
@@ -463,7 +554,7 @@ class LiveClassroomSession:
 
     def _build_ta_prompt(self, *, mode: str, task: str) -> str:
         slide = self.session.get_current_slide()
-        history = "\n".join(f"- {entry}" for entry in self.session.chat_history[-10:]) or "- (no recent turns)"
+        history = "\n".join(entry if entry.startswith("[") else f"- {entry}" for entry in self.session.chat_history[-10:]) or "- (no recent turns)"
         lecture_content = "\n\n".join(
             f"## Slide {item.number} — {item.title}\n\n{item.content}" for item in self.session.deck.slides
         )
@@ -492,8 +583,16 @@ class LiveClassroomSession:
         self.channel_histories[scope] = list(self.session.chat_history[-10:])
         return result
 
-    def _persist_user_turn(self, scope: str, message: str, *, intent: str) -> None:
-        self.store.append_conversation_turn(
+    def _persist_user_turn(
+        self,
+        scope: str,
+        message: str,
+        *,
+        intent: str,
+        turn_id: str | None = None,
+        reply_to_id: str | None = None,
+    ) -> str:
+        return self.store.append_conversation_turn(
             artifact_id=self.artifact_id,
             session_id=self.session_id,
             scope=scope,
@@ -502,6 +601,8 @@ class LiveClassroomSession:
             intent=intent,
             slide_number=self.session.current_slide,
             slide_title=self.session.get_current_slide().title,
+            turn_id=turn_id,
+            reply_to_id=reply_to_id,
         )
 
     def _persist_agent_events(self, events: list[dict[str, Any]]) -> None:
@@ -519,7 +620,30 @@ class LiveClassroomSession:
                 citations=_normalize_refs(event.get("citations")),
                 slide_number=self.session.current_slide,
                 slide_title=self.session.get_current_slide().title,
+                turn_id=str(event.get("id", "")).strip() or None,
+                reply_to_id=str(event.get("reply_to_id", "")).strip() if event.get("reply_to_id") is not None else None,
             )
+
+    def _load_persisted_history(self) -> None:
+        try:
+            for scope in CONVERSATION_SCOPES:
+                turns = self.store.get_conversation_turns(
+                    self.artifact_id,
+                    self.session_id,
+                    scope,
+                    limit=10,
+                )
+                formatted_turns: list[str] = []
+                for turn in turns:
+                    msg_id = turn.get("id") or f"msg_{uuid.uuid4().hex[:6]}"
+                    actor = str(turn.get("actor", "unknown")).strip()
+                    speaker = "Learner" if actor == "learner" else "TA" if actor in {"teacher", "ta"} else "Student Agent" if actor == "student" else actor
+                    msg = str(turn.get("message", "")).strip()
+                    if msg:
+                        formatted_turns.append(f"[{msg_id}] {speaker}: {msg}")
+                self.channel_histories[scope] = formatted_turns[-10:]
+        except Exception as exc:
+            print(f"[WARN] Failed to load persisted history: {exc}")
 
     def _load_persisted_artifacts(self) -> None:
         try:

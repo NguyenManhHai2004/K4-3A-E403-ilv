@@ -199,17 +199,21 @@ class LessonStore:
         citations: list[str] | None = None,
         slide_number: int | None = None,
         slide_title: str = "",
-    ) -> None:
+        turn_id: str | None = None,
+        reply_to_id: str | int | None = None,
+    ) -> str:
         self.ensure_ready()
         if scope not in CONVERSATION_SCOPES:
             raise ValueError(f"Unsupported conversation scope: {scope}")
         cleaned_message = message.strip()
         if not cleaned_message:
-            return
+            return ""
 
         timestamp = _utc_now()
         conversation_id = f"{session_id}:{scope}"
+        resolved_turn_id = str(turn_id).strip() if turn_id else f"msg_{uuid.uuid4().hex[:8]}"
         turn = {
+            "id": resolved_turn_id,
             "timestamp": timestamp,
             "actor": actor.strip() or "unknown",
             "intent": intent.strip(),
@@ -217,6 +221,7 @@ class LessonStore:
             "citations": citations or [],
             "slide_number": slide_number,
             "slide_title": slide_title.strip(),
+            "reply_to_id": str(reply_to_id).strip() if reply_to_id else None,
         }
         self.conversation_histories.update_one(
             {"id": conversation_id},
@@ -243,6 +248,24 @@ class LessonStore:
                 "$inc": {"message_count": 1},
             },
         )
+        return resolved_turn_id
+
+    def get_conversation_turns(
+        self,
+        artifact_id: str,
+        session_id: str,
+        scope: str,
+        *,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        self.ensure_ready()
+        conversation_id = f"{session_id}:{scope}"
+        doc = self.conversation_histories.find_one({"id": conversation_id}, {"_id": 0, "turns": 1})
+        if not doc or "turns" not in doc:
+            return []
+        turns = doc.get("turns") or []
+        return turns[-max(1, limit):]
+
 
     def list_conversations(self, artifact_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
         self.ensure_ready()

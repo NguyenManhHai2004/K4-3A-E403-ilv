@@ -158,7 +158,14 @@ class ClassroomSession:
             f"{excerpt_text}"
         )
 
-    def ask_ta(self, question: str, *, channel: str = "private_ta") -> dict[str, Any]:
+    def ask_ta(
+        self,
+        question: str,
+        *,
+        channel: str = "private_ta",
+        msg_id: str | None = None,
+        reply_to_id: str | None = None,
+    ) -> dict[str, Any]:
         question = question.strip()
         if not question:
             raise ValueError("Question must not be empty")
@@ -170,17 +177,23 @@ class ClassroomSession:
             message_kind="question",
             message=question,
         )
-        self._record_history("Learner", question)
+        user_msg_id = self._record_history("Learner", question, msg_id=msg_id)
+        reply_hint = f"\n(Người học đang reply tin nhắn: {reply_to_id})" if reply_to_id else ""
         prompt = self._build_prompt(
             mode="private_ta_chat",
             task=(
                 "Người học đang chat riêng với TA.\n"
-                f"Câu hỏi của người học: {question}\n"
+                f"Câu hỏi của người học: {question}{reply_hint}\n"
                 "Hãy trả lời theo đúng response contract."
             ),
         )
         response = self._run_json_agent(self.ta_agent, prompt)
-        self._record_history("TA", response.get("reply", ""))
+        if reply_to_id and not response.get("reply_to_id"):
+            response["reply_to_id"] = reply_to_id
+        elif not response.get("reply_to_id"):
+            response["reply_to_id"] = user_msg_id
+        agent_msg_id = self._record_history("TA", response.get("reply", ""))
+        response["id"] = agent_msg_id
         self._log_agent_message("teacher", response, channel=channel, target="learner")
         return response
 
@@ -194,11 +207,20 @@ class ClassroomSession:
         )
         response = self._run_json_agent(self.student_agent, prompt)
         if response.get("reply"):
-            self._record_history("Student Agent", response["reply"])
+            agent_msg_id = self._record_history("Student Agent", response["reply"])
+            response["id"] = agent_msg_id
         self._log_agent_message("student", response, channel="shared", target="learner")
         return response
 
-    def finish_shared_round(self, student_question: str, learner_answer: str | None) -> dict[str, Any]:
+    def finish_shared_round(
+        self,
+        student_question: str,
+        learner_answer: str | None,
+        *,
+        msg_id: str | None = None,
+        reply_to_id: str | None = None,
+    ) -> dict[str, Any]:
+        user_msg_id = None
         if learner_answer:
             self._log_event(
                 "learner_message",
@@ -209,11 +231,12 @@ class ClassroomSession:
                 related_question=student_question,
                 message=learner_answer,
             )
-            self._record_history("Learner", learner_answer)
+            user_msg_id = self._record_history("Learner", learner_answer, msg_id=msg_id)
+            reply_hint = f"\n(Người học đang reply tin nhắn: {reply_to_id})" if reply_to_id else ""
             task = (
                 "Trong lớp học chung, student agent vừa hỏi người học.\n"
                 f"Câu hỏi: {student_question}\n"
-                f"Câu trả lời của người học: {learner_answer}\n"
+                f"Câu trả lời của người học: {learner_answer}{reply_hint}\n"
                 "Hãy đánh giá câu trả lời theo đúng response contract."
             )
         else:
@@ -232,7 +255,11 @@ class ClassroomSession:
             )
         prompt = self._build_prompt(mode="shared_classroom", task=task)
         response = self._run_json_agent(self.ta_agent, prompt)
-        self._record_history("TA", response.get("reply", ""))
+        if user_msg_id and not response.get("reply_to_id"):
+            response["reply_to_id"] = user_msg_id
+        if response.get("reply"):
+            agent_msg_id = self._record_history("TA", response["reply"])
+            response["id"] = agent_msg_id
         self._log_agent_message("teacher", response, channel="shared", target="learner")
         return response
 
@@ -246,11 +273,20 @@ class ClassroomSession:
         )
         response = self._run_json_agent(self.student_agent, prompt)
         if response.get("reply"):
-            self._record_history("Student Agent", response["reply"])
+            agent_msg_id = self._record_history("Student Agent", response["reply"])
+            response["id"] = agent_msg_id
         self._log_agent_message("student", response, channel="private_student", target="learner")
         return response
 
-    def finish_private_student_round(self, student_question: str, learner_answer: str | None) -> dict[str, Any]:
+    def finish_private_student_round(
+        self,
+        student_question: str,
+        learner_answer: str | None,
+        *,
+        msg_id: str | None = None,
+        reply_to_id: str | None = None,
+    ) -> dict[str, Any]:
+        user_msg_id = None
         if learner_answer:
             self._log_event(
                 "learner_message",
@@ -261,11 +297,12 @@ class ClassroomSession:
                 related_question=student_question,
                 message=learner_answer,
             )
-            self._record_history("Learner", learner_answer)
+            user_msg_id = self._record_history("Learner", learner_answer, msg_id=msg_id)
+            reply_hint = f"\n(Người học đang reply tin nhắn: {reply_to_id})" if reply_to_id else ""
             task = (
                 "Trong chat riêng, bạn vừa hỏi người học.\n"
                 f"Câu hỏi: {student_question}\n"
-                f"Câu trả lời của người học: {learner_answer}\n"
+                f"Câu trả lời của người học: {learner_answer}{reply_hint}\n"
                 "Hãy đánh giá câu trả lời theo đúng response contract."
             )
         else:
@@ -284,8 +321,11 @@ class ClassroomSession:
             )
         prompt = self._build_prompt(mode="private_student_chat", task=task)
         response = self._run_json_agent(self.student_agent, prompt)
+        if user_msg_id and not response.get("reply_to_id"):
+            response["reply_to_id"] = user_msg_id
         if response.get("reply"):
-            self._record_history("Student Agent", response["reply"])
+            agent_msg_id = self._record_history("Student Agent", response["reply"])
+            response["id"] = agent_msg_id
         self._log_agent_message("student", response, channel="private_student", target="learner")
         return response
 
@@ -333,7 +373,7 @@ class ClassroomSession:
 
     def _build_prompt(self, *, mode: str, task: str) -> str:
         slide = self.get_current_slide()
-        history = "\n".join(f"- {entry}" for entry in self.chat_history[-10:]) or "- (no recent turns)"
+        history = "\n".join(entry if entry.startswith("[") else f"- {entry}" for entry in self.chat_history[-10:]) or "- (no recent turns)"
         return (
             "Trusted classroom state\n"
             f"- mode: {mode}\n"
@@ -395,12 +435,14 @@ class ClassroomSession:
             tool_results=initial_run.tool_results,
         )
 
-    def _record_history(self, speaker: str, message: str) -> None:
+    def _record_history(self, speaker: str, message: str, *, msg_id: str | None = None) -> str:
         cleaned = message.strip()
         if not cleaned:
-            return
-        self.chat_history.append(f"{speaker}: {cleaned}")
+            return ""
+        resolved_id = str(msg_id).strip() if msg_id else f"msg_{uuid.uuid4().hex[:6]}"
+        self.chat_history.append(f"[{resolved_id}] {speaker}: {cleaned}")
         self.chat_history = self.chat_history[-10:]
+        return resolved_id
 
     def _log_event(self, event_type: str, **fields: Any) -> None:
         if not self.logger:
@@ -444,6 +486,7 @@ class ClassroomSession:
             action=str(payload.get("action", "")).strip(),
             citations=_normalize_display_refs(payload.get("citations") or payload.get("evidence_ids")),
             message=reply,
+            reply_to_id=payload.get("reply_to_id"),
         )
 
     def _log_material_result(self, material_type: str, tool_results: list[dict[str, Any]]) -> None:

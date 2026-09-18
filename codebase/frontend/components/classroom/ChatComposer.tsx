@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { AgentFilter } from "@/lib/types";
+import { useEffect, useRef, useState } from "react";
+import type { AgentFilter, Message } from "@/lib/types";
 
 interface ChatComposerProps {
   defaultTarget?: AgentFilter;
   onSend: (text: string, target: AgentFilter) => void;
+  replyingToMessage?: Message | null;
+  onCancelReply?: () => void;
 }
 
 const quickPrompts: {
@@ -48,13 +50,22 @@ const quickPrompts: {
 export function ChatComposer({
   defaultTarget = "all",
   onSend,
+  replyingToMessage,
+  onCancelReply,
 }: ChatComposerProps) {
   const [text, setText] = useState("");
   const [target, setTarget] = useState<AgentFilter>(defaultTarget);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setTarget(defaultTarget);
   }, [defaultTarget]);
+
+  useEffect(() => {
+    if (replyingToMessage && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [replyingToMessage]);
 
   function submit() {
     const trimmed = text.trim();
@@ -62,6 +73,10 @@ export function ChatComposer({
     onSend(trimmed, target);
     setText("");
   }
+
+  const quoteSnippet = replyingToMessage
+    ? replyingToMessage.text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()
+    : "";
 
   return (
     <div className="chat-bottom-dock">
@@ -80,6 +95,33 @@ export function ChatComposer({
         ))}
       </div>
 
+      {replyingToMessage && (
+        <div className="reply-preview-banner">
+          <div className="reply-preview-indicator">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="9 17 4 12 9 7"></polyline>
+              <path d="M20 18v-2a4 4 0 0 0-4-4H4"></path>
+            </svg>
+          </div>
+          <div className="reply-preview-content">
+            <span className="reply-preview-author">
+              Đang trả lời <strong>{replyingToMessage.senderName}</strong>:
+            </span>
+            <span className="reply-preview-text truncate">
+              {quoteSnippet}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn-cancel-reply"
+            onClick={onCancelReply}
+            title="Hủy trả lời"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="input-compose-box">
         {/* <select
           className="target-agent-select"
@@ -93,6 +135,7 @@ export function ChatComposer({
         </select> */}
 
         <input
+          ref={inputRef}
           type="text"
           className="chat-text-input"
           placeholder="Nhập câu hỏi, câu trả lời hoặc yêu cầu tạo tài liệu ôn tập..."

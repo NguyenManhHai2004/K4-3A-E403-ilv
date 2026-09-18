@@ -5,7 +5,7 @@ export type LectureDayId = "day1" | "day2";
 export type ConversationScope = "shared" | "private_ta" | "private_student" | "material";
 
 export interface Message {
-  id: number;
+  id: number | string;
   senderType: SenderType;
   senderName: string;
   role: string;
@@ -15,6 +15,11 @@ export interface Message {
   citation?: string;
   activeRecallPrompt?: boolean;
   hasArtifactNotice?: boolean;
+  replyTo?: {
+    id: number | string;
+    text: string;
+    senderName: string;
+  };
 }
 
 export interface PendingPrompt {
@@ -23,6 +28,7 @@ export interface PendingPrompt {
 }
 
 export interface ClassroomAgentEvent {
+  id?: string | number;
   kind: "message";
   agent: AgentKey;
   channel: "shared" | "private_ta" | "private_student" | "material";
@@ -30,6 +36,7 @@ export interface ClassroomAgentEvent {
   reply: string;
   citations: string[];
   active_recall?: boolean;
+  reply_to_id?: string | number;
 }
 
 export interface QuizArtifactItem {

@@ -314,10 +314,14 @@ class ClassroomGateway:
                         text = str(payload.get("text", "")).strip()
                         if not text:
                             raise ValueError("text must not be empty")
+                        message_id = payload.get("message_id")
+                        reply_to_id = payload.get("reply_to_id")
                         snapshot = live_session.handle_message(
                             current_slide=_normalize_slide(payload.get("currentSlide")),
                             target=_normalize_target(payload.get("target")),
                             text=text,
+                            message_id=str(message_id).strip() if message_id else None,
+                            reply_to_id=str(reply_to_id).strip() if reply_to_id else None,
                         )
                         await send_snapshot(snapshot, request_id=request_id)
                         arm_post_message_timeout(token)
