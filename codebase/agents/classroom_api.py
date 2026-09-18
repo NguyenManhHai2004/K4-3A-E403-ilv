@@ -73,12 +73,18 @@ def _resolve_slide_path(day_id: str) -> Path:
     return slide_path
 
 
-def _infer_material_type(text: str) -> str:
+def _infer_material_types(text: str) -> list[str]:
     lowered = text.lower()
+    found: list[str] = []
     for material_type, keywords in MATERIAL_KEYWORDS.items():
         if any(keyword in lowered for keyword in keywords):
-            return material_type
-    return "quiz"
+            found.append(material_type)
+    return found
+
+
+def _infer_material_type(text: str) -> str:
+    types = _infer_material_types(text)
+    return types[0] if types else "quiz"
 
 
 def _message_event(agent: str, payload: dict[str, Any], *, channel: str) -> dict[str, Any]:
@@ -119,24 +125,30 @@ def _parse_material_content(content_format: str, content: str) -> dict[str, Any]
     }
 
 
-def _material_artifact(result: dict[str, Any]) -> dict[str, Any] | None:
+def _material_artifacts(result: dict[str, Any]) -> list[dict[str, Any]]:
     tool_results = result.get("tool_results") or []
-    if not tool_results:
-        return None
-    final_result = tool_results[0].get("result") or {}
-    content_format = str(final_result.get("content_format", "")).strip()
-    content = str(final_result.get("content", "")).strip()
-    if not content_format or not content:
-        return None
-    return {
-        "material_type": str(final_result.get("material_type", "")).strip(),
-        "title": str(final_result.get("title", "")).strip(),
-        "covered_until": str(final_result.get("covered_until", "")).strip(),
-        "content_format": content_format,
-        "item_count": int(final_result.get("item_count", 0) or 0),
-        "citations": _normalize_refs(final_result.get("citations")),
-        "content": _parse_material_content(content_format, content),
-    }
+    artifacts: list[dict[str, Any]] = []
+    for item in tool_results:
+        final_result = item.get("result") or {}
+        content_format = str(final_result.get("content_format", "")).strip()
+        content = str(final_result.get("content", "")).strip()
+        if not content_format or not content:
+            continue
+        artifacts.append({
+            "material_type": str(final_result.get("material_type", "")).strip(),
+            "title": str(final_result.get("title", "")).strip(),
+            "covered_until": str(final_result.get("covered_until", "")).strip(),
+            "content_format": content_format,
+            "item_count": int(final_result.get("item_count", 0) or 0),
+            "citations": _normalize_refs(final_result.get("citations")),
+            "content": _parse_material_content(content_format, content),
+        })
+    return artifacts
+
+
+def _material_artifact(result: dict[str, Any]) -> dict[str, Any] | None:
+    artifacts = _material_artifacts(result)
+    return artifacts[0] if artifacts else None
 
 
 def _new_session(
@@ -193,15 +205,54 @@ def _handle_message(
         events.append(_message_event("teacher", ta_turn, channel="private_ta"))
         return events, artifacts, pending_prompt
 
-    if target == "generator":
-        material_type = _infer_material_type(text)
-        result = session.generate_material(material_type, text)
+    if target == "generator" or any(keyword in text.lower() for keyword in ("quiz", "flashcard", "flash card", "mindmap", "mind map")):
+        types = _infer_material_types(text)
+        mat_type = types[0] if len(types) == 1 else None
+        result = session.generate_material(mat_type, text)
         payload = result.get("agent_response") or {}
-        if payload.get("reply"):
-            events.append(_message_event("generator", payload, channel="material"))
-        artifact = _material_artifact(result)
-        if artifact:
-            artifacts.append(artifact)
+        m_artifacts = _material_artifacts(result)
+        artifacts.extend(m_artifacts)
+
+        type_names = {
+            "quiz": "Quiz trắc nghiệm",
+            "flashcard": "Bộ thẻ ghi nhớ (Flashcard)",
+            "mindmap": "Sơ đồ tư duy (Mindmap)",
+        }
+
+        if len(m_artifacts) == 0:
+            if payload.get("reply"):
+                events.append(_message_event("generator", payload, channel="material"))
+        elif len(m_artifacts) == 1:
+            art = m_artifacts[0]
+            t_name = type_names.get(art["material_type"], art["material_type"])
+            reply = payload.get("reply") or f"Đã tạo thành công {t_name}: **{art['title']}** ({art['item_count']} mục)."
+            events.append({
+                "kind": "message",
+                "agent": "generator",
+                "channel": "material",
+                "intent": "generate_material",
+                "reply": reply,
+                "citations": art.get("citations", []),
+                "active_recall": False,
+            })
+        else:
+            for art in m_artifacts:
+                t_name = type_names.get(art["material_type"], art["material_type"])
+                item_label = (
+                    "câu hỏi" if art["material_type"] == "quiz"
+                    else "thẻ ghi nhớ" if art["material_type"] == "flashcard"
+                    else "nhánh kiến thức"
+                )
+                reply = f"⚡ Đã tạo thành công **{t_name}**: **{art['title']}** ({art['item_count']} {item_label})."
+                events.append({
+                    "kind": "message",
+                    "agent": "generator",
+                    "channel": "material",
+                    "intent": "generate_material",
+                    "reply": reply,
+                    "citations": art.get("citations", []),
+                    "active_recall": False,
+                })
         return events, artifacts, pending_prompt
 
     if target == "student":
@@ -221,17 +272,6 @@ def _handle_message(
         ta_turn = session.finish_shared_round(pending_prompt["question"], text)
         events.append(_message_event("teacher", ta_turn, channel="shared"))
         return events, artifacts, None
-
-    if any(keyword in text.lower() for keyword in ("quiz", "flashcard", "flash card", "mindmap", "mind map")):
-        material_type = _infer_material_type(text)
-        result = session.generate_material(material_type, text)
-        payload = result.get("agent_response") or {}
-        if payload.get("reply"):
-            events.append(_message_event("generator", payload, channel="material"))
-        artifact = _material_artifact(result)
-        if artifact:
-            artifacts.append(artifact)
-        return events, artifacts, pending_prompt
 
     ta_turn = session.ask_ta(text, channel="shared")
     events.append(_message_event("teacher", ta_turn, channel="shared"))

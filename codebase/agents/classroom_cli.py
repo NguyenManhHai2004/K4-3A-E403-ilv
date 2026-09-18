@@ -87,6 +87,12 @@ class LectureDeck:
             covered.append(f"## Slide {slide.number} — {slide.title}\n\n{slide.content}")
         return "\n\n".join(covered)
 
+    def full_content(self) -> str:
+        return "\n\n".join(
+            f"## Slide {slide.number} — {slide.title}\n\n{slide.content}"
+            for slide in self.slides
+        )
+
 
 @dataclass
 class ClassroomSession:
@@ -283,48 +289,46 @@ class ClassroomSession:
         self._log_agent_message("student", response, channel="private_student", target="learner")
         return response
 
-    def generate_material(self, material_type: str, instructions: str = "") -> dict[str, Any]:
-        material_type = material_type.strip().lower()
-        if material_type not in {"quiz", "flashcard", "mindmap"}:
-            raise ValueError("material_type must be quiz, flashcard, or mindmap")
+    def generate_material(self, material_type: str | None = None, instructions: str = "") -> dict[str, Any]:
+        mat_type = (material_type or "").strip().lower()
+        if mat_type not in {"quiz", "flashcard", "mindmap", "all"}:
+            mat_type = ""
         self._log_event(
             "material_requested",
             actor="learner",
             target="generator",
             channel="material",
-            material_type=material_type,
+            material_type=mat_type or "multi",
             instructions=instructions.strip(),
         )
 
-        tool_name_hint = (
-            "generate_quiz"
-            if material_type == "quiz"
-            else "generate_flashcard"
-            if material_type in {"flashcard", "cards"}
-            else "generate_mindmap"
-            if material_type == "mindmap"
-            else "generate_quiz, generate_flashcard, hoặc generate_mindmap"
-        )
         prompt = self._build_prompt(
             mode="learning_material_generation",
             task=(
-                "Người học muốn tạo học liệu từ phần đã học.\n"
-                f"requested_material_type: {material_type}\n"
+                "Người học muốn tạo học liệu từ bài học.\n"
+                f"requested_material_type: {mat_type or 'tự động suy luận từ yêu cầu'}\n"
                 f"additional_instructions: {instructions.strip() or '(none)'}\n"
-                f"Bắt buộc dùng tool phù hợp ({tool_name_hint} hoặc generate_learning_material)."
+                "Quy trình Agent Loop:\n"
+                "1. Phân tích yêu cầu và xác định tất cả các loại học liệu cần tạo (quiz, flashcard, mindmap).\n"
+                "2. Đưa ra Thought và gọi tool tương ứng cho học liệu đầu tiên (hoặc các tool nếu gọi song song).\n"
+                "3. Nhận Observation từ kết quả thực thi tool. Nếu vẫn còn học liệu được yêu cầu chưa tạo, tiếp tục Thought và gọi tool tiếp theo.\n"
+                "4. Lặp lại cho đến khi đã tạo đủ tất cả các học liệu được yêu cầu.\n"
+                "5. Khi đã đủ tất cả học liệu, trả lời kết quả cuối cùng theo response contract JSON (không gọi thêm tool).\n"
+                "Lưu ý về phạm vi nội dung:\n"
+                "- Nếu người học yêu cầu tạo học liệu từ toàn bộ bài học (ví dụ: 'toàn bộ bài học', 'cả bài', 'tất cả slide'), bắt buộc dùng nội dung từ 'full_lecture_content'.\n"
+                "- Nếu người học yêu cầu từ phần đã học đến hiện tại (hoặc không nêu rõ), hãy dùng 'covered_content' hoặc 'full_lecture_content' phù hợp."
             ),
         )
-        initial_run = self.learning_material_agent.run([{"role": "user", "content": prompt}], tool_choice="required")
-        final_response = self._finalize_tool_run(self.learning_material_agent, prompt, initial_run)
-        parsed_response = _parse_json_response(final_response.text)
+        run = self.learning_material_agent.run_loop([{"role": "user", "content": prompt}], tool_choice="required")
+        parsed_response = _parse_json_response(run.text)
         if not parsed_response:
-            parsed_response = _fallback_material_payload(initial_run.tool_results, material_type)
+            parsed_response = _fallback_material_payload(run.tool_results, mat_type)
         self._log_agent_message("generator", parsed_response, channel="material", target="learner")
-        self._log_material_result(material_type, initial_run.tool_results)
+        self._log_material_result(mat_type or "multi", run.tool_results)
         return {
             "agent_response": parsed_response,
-            "tool_calls": [{"name": call.name, "args": call.args} for call in initial_run.tool_calls],
-            "tool_results": initial_run.tool_results,
+            "tool_calls": [{"name": call.name, "args": call.args} for call in run.tool_calls],
+            "tool_results": run.tool_results,
         }
 
     def _build_prompt(self, *, mode: str, task: str) -> str:
@@ -342,6 +346,8 @@ class ClassroomSession:
             f"## Slide {slide.number} — {slide.title}\n\n{slide.content}\n\n"
             "covered_content\n"
             f"{self.deck.covered_content(slide.number)}\n\n"
+            "full_lecture_content\n"
+            f"{self.deck.full_content()}\n\n"
             "Task\n"
             f"{task}"
         )
@@ -618,16 +624,23 @@ def _parse_json_response(text: str | None) -> dict[str, Any]:
             return {}
 
 
-def _fallback_material_payload(tool_results: list[dict[str, Any]], material_type: str) -> dict[str, Any]:
+def _fallback_material_payload(tool_results: list[dict[str, Any]], material_type: str | None = None) -> dict[str, Any]:
     if not tool_results:
         return {}
-    first_result = tool_results[0].get("result", {})
-    evidence_id = first_result.get("title") or first_result.get("tool") or material_type
+    evidence_ids: list[str] = []
+    types_generated: list[str] = []
+    for item in tool_results:
+        res = item.get("result", {})
+        ev = res.get("title") or res.get("tool") or material_type or "material"
+        evidence_ids.append(str(ev))
+        m_type = res.get("material_type") or material_type or "học liệu"
+        types_generated.append(str(m_type))
+    types_str = ", ".join(dict.fromkeys(types_generated))
     return {
         "intent": "generate_material",
         "action": "return_material",
-        "reply": f"Da tao {material_type} cho phan bai hoc hien tai.",
-        "evidence_ids": [str(evidence_id)],
+        "reply": f"Đã tạo {types_str} cho bài học.",
+        "evidence_ids": evidence_ids,
     }
 
 
@@ -649,14 +662,15 @@ def _print_material_result(result: dict[str, Any]) -> None:
     if not tool_results:
         print("Khong co tool result.")
         return
-    final_result = tool_results[0].get("result", {})
-    print("\n[Material Output]")
-    print(
-        f"type={final_result.get('material_type')} | "
-        f"format={final_result.get('content_format')} | "
-        f"items={final_result.get('item_count')}"
-    )
-    print(final_result.get("content", ""))
+    for index, item in enumerate(tool_results, 1):
+        final_result = item.get("result", {})
+        print(f"\n[Material Output #{index}]")
+        print(
+            f"type={final_result.get('material_type')} | "
+            f"format={final_result.get('content_format')} | "
+            f"items={final_result.get('item_count')}"
+        )
+        print(final_result.get("content", ""))
 
 
 def _normalize_display_refs(raw: Any) -> list[str]:
@@ -811,10 +825,10 @@ def _handle_single_agent_command(
     parts = raw.split(maxsplit=1)
     material_type = parts[0].lower()
     instructions = parts[1] if len(parts) > 1 else ""
-    if material_type not in {"quiz", "flashcard", "mindmap"}:
-        print("Material mode dung: quiz [ghi_chu] | flashcard [ghi_chu] | mindmap [ghi_chu]")
-        return
-    result = session.generate_material(material_type, instructions)
+    if material_type in {"quiz", "flashcard", "mindmap", "all"}:
+        result = session.generate_material(material_type if material_type != "all" else None, instructions)
+    else:
+        result = session.generate_material(None, raw)
     _print_material_result(result)
 
 
