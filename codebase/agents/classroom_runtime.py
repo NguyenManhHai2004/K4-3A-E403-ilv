@@ -155,6 +155,7 @@ class LiveClassroomSession:
     def bootstrap(self, *, current_slide: int, auto_mode: str) -> dict[str, Any]:
         self.auto_mode = auto_mode
         self.pending_prompt = None
+        self._load_persisted_artifacts()
         self.session.set_current_slide(current_slide, reason="bootstrap", emit_log=False)
         events = self._immediate_mode_events(auto_mode)
         self._persist_agent_events(events)
@@ -463,14 +464,46 @@ class LiveClassroomSession:
                 slide_title=self.session.get_current_slide().title,
             )
 
+    def _load_persisted_artifacts(self) -> None:
+        try:
+            persisted = self.store.list_generated_materials(self.artifact_id, limit=50)
+            for mat in reversed(persisted):
+                m_type = str(mat.get("material_type", "")).strip()
+                if m_type in self.artifacts and self.artifacts[m_type] is None:
+                    self.artifacts[m_type] = mat
+        except Exception:
+            pass
+
     def _merge_artifacts(self, artifacts: list[dict[str, Any]]) -> None:
         for artifact in artifacts:
             material_type = str(artifact.get("material_type", "")).strip()
             if material_type in self.artifacts:
                 self.artifacts[material_type] = artifact
 
+            try:
+                saved = self.store.save_generated_material(
+                    artifact_id=self.artifact_id,
+                    session_id=self.session_id,
+                    material_type=material_type,
+                    title=str(artifact.get("title", "")).strip(),
+                    content=artifact.get("content"),
+                    content_format=str(artifact.get("content_format", "json")),
+                    item_count=int(artifact.get("item_count", 0) or 0),
+                    citations=artifact.get("citations", []),
+                    covered_until=str(artifact.get("covered_until", "")),
+                    slide_number=self.session.current_slide,
+                    slide_title=self.session.get_current_slide().title,
+                )
+                artifact["id"] = saved.get("id")
+            except Exception as exc:
+                print(f"[WARN] Failed to persist generated material: {exc}")
+
     def _snapshot(self, events: list[dict[str, Any]]) -> dict[str, Any]:
         current = self.session.get_current_slide()
+        try:
+            mat_count = len(self.store.list_generated_materials(self.artifact_id))
+        except Exception:
+            mat_count = 0
         return {
             "sessionId": self.session_id,
             "dayId": self.artifact_id,
@@ -480,6 +513,7 @@ class LiveClassroomSession:
             "pendingPrompt": _normalize_pending(self.pending_prompt),
             "artifacts": self.artifacts,
             "historyTopics": self.store.list_recent_topics(self.artifact_id, limit=8),
+            "materialsCount": mat_count,
             "events": events,
         }
 

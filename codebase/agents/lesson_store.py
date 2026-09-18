@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -139,6 +140,7 @@ class LessonStore:
         self.artifacts: Collection[dict[str, Any]] = self.db["artifacts"]
         self.ingested_artifacts: Collection[dict[str, Any]] = self.db["ingested_artifacts"]
         self.conversation_histories: Collection[dict[str, Any]] = self.db["conversation_histories"]
+        self.generated_materials: Collection[dict[str, Any]] = self.db["generated_materials"]
         self._seeded = False
 
     def ensure_ready(self) -> None:
@@ -267,6 +269,66 @@ class LessonStore:
                 topics.append(topic)
         return topics
 
+    def save_generated_material(
+        self,
+        *,
+        artifact_id: str,
+        material_type: str,
+        title: str,
+        content: Any,
+        content_format: str,
+        item_count: int = 0,
+        citations: list[str] | None = None,
+        covered_until: str = "",
+        slide_number: int | None = None,
+        slide_title: str = "",
+        session_id: str = "",
+    ) -> dict[str, Any]:
+        self.ensure_ready()
+        timestamp = _utc_now()
+        material_id = f"mat-{uuid.uuid4()}"
+        doc: dict[str, Any] = {
+            "id": material_id,
+            "artifact_id": artifact_id,
+            "session_id": session_id,
+            "material_type": material_type,
+            "title": title.strip() or f"Học liệu {material_type}",
+            "content_format": content_format,
+            "content": content,
+            "item_count": max(0, int(item_count)),
+            "citations": citations or [],
+            "covered_until": covered_until,
+            "slide_number": slide_number,
+            "slide_title": slide_title,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+        self.generated_materials.insert_one(doc)
+        return _normalize_artifact(doc) or doc
+
+    def list_generated_materials(
+        self,
+        artifact_id: str,
+        *,
+        material_type: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        self.ensure_ready()
+        query: dict[str, Any] = {"artifact_id": artifact_id}
+        if material_type and material_type != "all":
+            query["material_type"] = material_type
+        cursor = (
+            self.generated_materials.find(query, {"_id": 0})
+            .sort("created_at", DESCENDING)
+            .limit(max(1, limit))
+        )
+        return [_normalize_artifact(doc) or {} for doc in cursor]
+
+    def get_generated_material(self, material_id: str) -> dict[str, Any] | None:
+        self.ensure_ready()
+        doc = self.generated_materials.find_one({"id": material_id}, {"_id": 0})
+        return _normalize_artifact(doc)
+
     def _ensure_indexes(self) -> None:
         self.artifacts.create_index([("id", ASCENDING)], unique=True, name="artifact_id_unique")
         self.ingested_artifacts.create_index(
@@ -278,6 +340,15 @@ class LessonStore:
         self.conversation_histories.create_index(
             [("artifact_id", ASCENDING), ("updated_at", DESCENDING)],
             name="conversation_artifact_updated_at_idx",
+        )
+        self.generated_materials.create_index([("id", ASCENDING)], unique=True, name="generated_material_id_unique")
+        self.generated_materials.create_index(
+            [("artifact_id", ASCENDING), ("created_at", DESCENDING)],
+            name="material_artifact_created_at_idx",
+        )
+        self.generated_materials.create_index(
+            [("artifact_id", ASCENDING), ("material_type", ASCENDING)],
+            name="material_artifact_type_idx",
         )
 
     def _ensure_seed_data(self) -> None:

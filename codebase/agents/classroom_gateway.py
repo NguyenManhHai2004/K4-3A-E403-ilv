@@ -6,7 +6,7 @@ import os
 import uuid
 from http import HTTPStatus
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.datastructures import Headers
@@ -19,8 +19,8 @@ from lesson_store import LessonStore
 
 HOST = os.getenv("CLASSROOM_API_HOST", "0.0.0.0")
 PORT = int(os.getenv("CLASSROOM_API_PORT", "8000"))
-STUDENT_DELAY_SECONDS = float(os.getenv("CLASSROOM_STUDENT_DELAY_SECONDS", "7"))
-ANSWER_TIMEOUT_SECONDS = float(os.getenv("CLASSROOM_ANSWER_TIMEOUT_SECONDS", "7"))
+STUDENT_DELAY_SECONDS = float(os.getenv("CLASSROOM_STUDENT_DELAY_SECONDS", "5"))
+ANSWER_TIMEOUT_SECONDS = float(os.getenv("CLASSROOM_ANSWER_TIMEOUT_SECONDS", "15"))
 
 
 def _cors_headers(content_type: str, *, content_length: int, cache_control: str = "no-store") -> Headers:
@@ -111,6 +111,22 @@ class ClassroomGateway:
                 )
 
             parts = _split_path(request.path)
+            if len(parts) == 4 and parts[:2] == ["api", "artifacts"] and parts[3] == "materials":
+                query_params = parse_qs(urlparse(request.path).query)
+                material_type = query_params.get("type", [None])[0]
+                return _json_response(
+                    200,
+                    {
+                        "materials": self.store.list_generated_materials(parts[2], material_type=material_type),
+                    },
+                )
+
+            if len(parts) == 3 and parts[:2] == ["api", "materials"]:
+                material = self.store.get_generated_material(parts[2])
+                if not material:
+                    return _json_response(404, {"message": "Material not found."})
+                return _json_response(200, material)
+
             if len(parts) == 4 and parts[:2] == ["api", "artifacts"] and parts[3] == "conversations":
                 return _json_response(
                     200,

@@ -296,13 +296,22 @@ class ClassroomSession:
             instructions=instructions.strip(),
         )
 
+        tool_name_hint = (
+            "generate_quiz"
+            if material_type == "quiz"
+            else "generate_flashcard"
+            if material_type in {"flashcard", "cards"}
+            else "generate_mindmap"
+            if material_type == "mindmap"
+            else "generate_quiz, generate_flashcard, hoặc generate_mindmap"
+        )
         prompt = self._build_prompt(
             mode="learning_material_generation",
             task=(
                 "Người học muốn tạo học liệu từ phần đã học.\n"
                 f"requested_material_type: {material_type}\n"
                 f"additional_instructions: {instructions.strip() or '(none)'}\n"
-                "Bắt buộc dùng tool generate_learning_material."
+                f"Bắt buộc dùng tool phù hợp ({tool_name_hint} hoặc generate_learning_material)."
             ),
         )
         initial_run = self.learning_material_agent.run([{"role": "user", "content": prompt}], tool_choice="required")

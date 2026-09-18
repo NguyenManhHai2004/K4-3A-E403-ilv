@@ -6,6 +6,9 @@ from typing import Any
 import yaml
 
 from .clarify.tool import ask_user
+from .generate_learning_material.flashcard import generate_flashcard, generate_flashcards
+from .generate_learning_material.mindmap import generate_mindmap
+from .generate_learning_material.quiz import generate_quiz
 from .generate_learning_material.tool import generate_learning_material
 from .search_device_info.tool import search_device_info
 
@@ -18,6 +21,10 @@ from .search_device_info.tool import search_device_info
 TOOL_FUNCTIONS = {
     "clarify": ask_user,
     "generate_learning_material": generate_learning_material,
+    "generate_quiz": generate_quiz,
+    "generate_flashcard": generate_flashcard,
+    "generate_flashcards": generate_flashcard,
+    "generate_mindmap": generate_mindmap,
     "search_device_info": search_device_info,
 }
 

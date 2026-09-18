@@ -1,9 +1,149 @@
 tools:
+  - name: generate_quiz
+    description: >-
+      Tạo học liệu ôn tập trắc nghiệm (quiz) bám sát nội dung bài giảng đã học.
+      Kết quả được chuẩn hóa và serialize thành JSON.
+    parameters:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Tiêu đề ngắn gọn của bộ câu hỏi quiz."
+        language:
+          type: string
+          enum: [vi, en]
+          default: vi
+          description: "Ngôn ngữ của bộ câu hỏi."
+        covered_until:
+          type: string
+          description: "Mốc tiến độ bài giảng đã học, ví dụ slide 7 hoặc 08:35."
+        instructions:
+          type: string
+          description: "Ghi chú bổ sung về độ khó hoặc trọng tâm ôn tập."
+        quiz_items:
+          type: array
+          description: "Danh sách câu hỏi trắc nghiệm."
+          items:
+            type: object
+            properties:
+              question:
+                type: string
+              options:
+                type: array
+                items:
+                  type: string
+                minItems: 2
+              correct_option:
+                type: string
+              explanation:
+                type: string
+              citations:
+                type: array
+                items:
+                  type: string
+            required: [question, options, correct_option, explanation, citations]
+      required: [title, quiz_items]
+
+  - name: generate_flashcard
+    description: >-
+      Tạo bộ thẻ ghi nhớ 2 mặt (flashcard) cho các khái niệm và công thức cốt lõi.
+      Kết quả được chuẩn hóa và serialize thành JSON.
+    parameters:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Tiêu đề ngắn gọn của bộ thẻ flashcard."
+        language:
+          type: string
+          enum: [vi, en]
+          default: vi
+          description: "Ngôn ngữ của thẻ flashcard."
+        covered_until:
+          type: string
+          description: "Mốc tiến độ bài giảng đã học, ví dụ slide 7 hoặc 08:35."
+        instructions:
+          type: string
+          description: "Ghi chú bổ sung về trọng tâm kiến thức."
+        flashcards:
+          type: array
+          description: "Danh sách thẻ học theo cặp mặt trước và mặt sau."
+          items:
+            type: object
+            properties:
+              front:
+                type: string
+              back:
+                type: string
+              citations:
+                type: array
+                items:
+                  type: string
+            required: [front, back, citations]
+      required: [title, flashcards]
+
+  - name: generate_mindmap
+    description: >-
+      Tạo sơ đồ tư duy cây phân cấp (mindmap) hệ thống hóa kiến thức bài giảng.
+      Kết quả được chuẩn hóa và serialize thành cấu trúc XML.
+    parameters:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Tiêu đề ngắn gọn của sơ đồ tư duy."
+        language:
+          type: string
+          enum: [vi, en]
+          default: vi
+          description: "Ngôn ngữ của sơ đồ tư duy."
+        covered_until:
+          type: string
+          description: "Mốc tiến độ bài giảng đã học, ví dụ slide 7 hoặc 08:35."
+        instructions:
+          type: string
+          description: "Ghi chú bổ sung về phạm vi sơ đồ."
+        mindmap:
+          type: object
+          description: "Cấu trúc cây mindmap gồm chủ đề gốc và các nhánh."
+          properties:
+            root_topic:
+              type: string
+            citations:
+              type: array
+              items:
+                type: string
+            branches:
+              type: array
+              items:
+                type: object
+                properties:
+                  label:
+                    type: string
+                  citations:
+                    type: array
+                    items:
+                      type: string
+                  children:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        label:
+                          type: string
+                        citations:
+                          type: array
+                          items:
+                            type: string
+                      required: [label]
+                required: [label]
+          required: [root_topic, branches]
+      required: [title, mindmap]
+
   - name: generate_learning_material
     description: >-
-      Tạo học liệu ôn tập dựa trên phần bài giảng mà học viên đã học tới.
-      Tool này chuẩn hóa đầu ra: quiz và flashcard được serialize thành JSON,
-      mindmap được serialize thành XML.
+      Tool tổng hợp để tạo học liệu ôn tập (quiz, flashcard hoặc mindmap).
+      Quiz và flashcard được serialize thành JSON, mindmap được serialize thành XML.
     parameters:
       type: object
       properties:
@@ -97,4 +237,4 @@ tools:
                       required: [label]
                 required: [label]
           required: [root_topic, branches]
-      required: [material_type, title, language, covered_until]
+      required: [material_type, title]
